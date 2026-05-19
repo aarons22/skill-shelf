@@ -1,5 +1,6 @@
 import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Generator
 
 from sqlalchemy import create_engine, event, text
@@ -46,6 +47,8 @@ def run_migrations() -> None:
     from alembic import command
     from alembic.config import Config
 
-    alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
+    backend_dir = Path(__file__).resolve().parents[1]
+    alembic_cfg = Config(str(backend_dir / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(backend_dir / "alembic"))
     alembic_cfg.set_main_option("sqlalchemy.url", get_settings().db_url)
     command.upgrade(alembic_cfg, "head")
