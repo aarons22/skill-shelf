@@ -388,6 +388,16 @@ All three changes go in the same commit.
 - `pytest backend/tests/integration` — API + DB. Run before committing.
 - `python scripts/verify.py` — the gate. Must pass before any task is "done."
 
+### Commit discipline
+
+Make **atomic commits** as part of implementation — one commit per logical unit of work. Do not batch everything into a single end-of-task commit and do not wait to be asked. Typical split for a feature:
+
+1. Shared infrastructure first (extracted components, new utilities).
+2. New feature code.
+3. Refactors or renames that follow from it (e.g., updated routes/links).
+
+Follow the imperative style already in the repo history: `Add X`, `Extract Y`, `Move Z to …`.
+
 ---
 
 ## Things easy to get wrong
