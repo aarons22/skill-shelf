@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, insert
 from sqlalchemy.engine import Connection
 
 from app.lib.marketplace_json import build_codex_marketplace_json, build_marketplace_json
-from app.models import metadata, marketplaces, skills
+from app.models import metadata, marketplaces, plugins, skills
 
 
 @pytest.fixture
@@ -48,8 +48,10 @@ def test_empty_plugins(conn):
 
 def test_single_skill(conn):
     now = int(time.time())
+    _insert_plugin(conn, "quarterly-report", "Quarterly Report", "Guides quarterly reporting", now)
     conn.execute(insert(skills).values(
         marketplace_slug="finance-team",
+        plugin_slug="quarterly-report",
         slug="quarterly-report",
         display_name="Quarterly Report",
         description="Guides quarterly reporting",
@@ -73,8 +75,10 @@ def test_single_skill(conn):
 
 def test_codex_marketplace_json(conn):
     now = int(time.time())
+    _insert_plugin(conn, "quarterly-report", "Quarterly Report", "Guides quarterly reporting", now)
     conn.execute(insert(skills).values(
         marketplace_slug="finance-team",
+        plugin_slug="quarterly-report",
         slug="quarterly-report",
         display_name="Quarterly Report",
         description="Guides quarterly reporting",
@@ -107,8 +111,10 @@ def test_codex_marketplace_json(conn):
 def test_source_path_uses_forward_slashes(conn):
     """source.path must use / on all platforms (posixpath, never os.path.join)."""
     now = int(time.time())
+    _insert_plugin(conn, "my-skill", "My Skill", "desc", now)
     conn.execute(insert(skills).values(
         marketplace_slug="finance-team",
+        plugin_slug="my-skill",
         slug="my-skill",
         display_name="My Skill",
         description="desc",
@@ -124,19 +130,10 @@ def test_source_path_uses_forward_slashes(conn):
     assert path == "plugins/my-skill"
 
 
-def test_multiple_skills_sorted(conn):
+def test_multiple_plugins_sorted(conn):
     now = int(time.time())
     for slug, name in [("zzz-last", "ZZZ"), ("aaa-first", "AAA"), ("mmm-middle", "MMM")]:
-        conn.execute(insert(skills).values(
-            marketplace_slug="finance-team",
-            slug=slug,
-            display_name=name,
-            description=f"desc for {slug}",
-            version="1.0.0",
-            content="...",
-            created_at=now,
-            updated_at=now,
-        ))
+        _insert_plugin(conn, slug, name, f"desc for {slug}", now)
     conn.commit()
     result = build_marketplace_json("finance-team", conn)
     names = [p["name"] for p in result["plugins"]]
@@ -146,3 +143,15 @@ def test_multiple_skills_sorted(conn):
 def test_missing_marketplace_raises(conn):
     with pytest.raises(Exception):
         build_marketplace_json("nonexistent", conn)
+
+
+def _insert_plugin(conn: Connection, slug: str, display_name: str, description: str, now: int) -> None:
+    conn.execute(insert(plugins).values(
+        marketplace_slug="finance-team",
+        slug=slug,
+        display_name=display_name,
+        description=description,
+        version="1.0.0",
+        created_at=now,
+        updated_at=now,
+    ))

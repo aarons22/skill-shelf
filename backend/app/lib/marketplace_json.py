@@ -28,7 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.engine import Connection
 
 from app.config import get_settings
-from app.models import marketplaces, skills
+from app.models import marketplaces, plugins, skills
 
 
 def build_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
@@ -44,23 +44,23 @@ def build_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
     if row is None:
         raise KeyError(f"Marketplace {slug!r} not found")
 
-    skill_rows = _skill_rows(slug, conn)
+    plugin_rows = _plugin_rows(slug, conn)
     base_url = get_settings().public_base_url.rstrip("/")
     git_url = f"{base_url}/m/{slug}/git/repo.git"
 
     plugins = [
         {
-            "name": skill["slug"],
-            "description": skill["description"],
-            "version": skill["version"],
+            "name": plugin["slug"],
+            "description": plugin["description"],
+            "version": plugin["version"],
             "source": {
                 "source": "url",
                 "url": git_url,
                 # posixpath.join — always forward slashes regardless of OS
-                "path": posixpath.join("plugins", skill["slug"]),
+                "path": posixpath.join("plugins", plugin["slug"]),
             },
         }
-        for skill in skill_rows
+        for plugin in plugin_rows
     ]
 
     return {
@@ -75,7 +75,7 @@ def build_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
 
 def build_codex_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
     row = _marketplace_row(slug, conn)
-    skill_rows = _skill_rows(slug, conn)
+    plugin_rows = _plugin_rows_with_skills(slug, conn)
 
     return {
         "name": slug,
@@ -84,10 +84,10 @@ def build_codex_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
         },
         "plugins": [
             {
-                "name": skill["slug"],
+                "name": plugin["slug"],
                 "source": {
                     "source": "local",
-                    "path": f"./{posixpath.join('plugins', skill['slug'])}",
+                    "path": f"./{posixpath.join('plugins', plugin['slug'])}",
                 },
                 "policy": {
                     "installation": "AVAILABLE",
@@ -95,7 +95,7 @@ def build_codex_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
                 },
                 "category": "Productivity",
             }
-            for skill in skill_rows
+            for plugin in plugin_rows
         ],
     }
 
@@ -123,6 +123,37 @@ def _skill_rows(slug: str, conn: Connection):
             skills.c.version,
         ).where(skills.c.marketplace_slug == slug)
         .order_by(skills.c.slug)
+    ).mappings().all()
+
+
+def _plugin_rows(slug: str, conn: Connection):
+    return conn.execute(
+        select(
+            plugins.c.slug,
+            plugins.c.description,
+            plugins.c.version,
+        ).where(plugins.c.marketplace_slug == slug)
+        .order_by(plugins.c.slug)
+    ).mappings().all()
+
+
+def _plugin_rows_with_skills(slug: str, conn: Connection):
+    return conn.execute(
+        select(
+            plugins.c.slug,
+            plugins.c.description,
+            plugins.c.version,
+        )
+        .select_from(
+            plugins.join(
+                skills,
+                (skills.c.marketplace_slug == plugins.c.marketplace_slug)
+                & (skills.c.plugin_slug == plugins.c.slug),
+            )
+        )
+        .where(plugins.c.marketplace_slug == slug)
+        .group_by(plugins.c.slug, plugins.c.description, plugins.c.version)
+        .order_by(plugins.c.slug)
     ).mappings().all()
 
 
