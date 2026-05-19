@@ -2,10 +2,11 @@ import json
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, func, insert, select, update
 
 from app.db import get_connection, get_transaction
+from app.lib.auth import public_read_dependencies, record_audit, require_marketplace_read, require_marketplace_write
 from app.lib import git_store, write_path
 from app.lib.slug import make_slug
 from app.models import (
@@ -45,7 +46,15 @@ from app.schemas import (
     SkillUpdate,
 )
 
-router = APIRouter(prefix="/api/marketplaces/{marketplace_slug}/plugins", tags=["plugins"])
+router = APIRouter(
+    prefix="/api/marketplaces/{marketplace_slug}/plugins",
+    tags=["plugins"],
+    dependencies=[Depends(public_read_dependencies)],
+)
+
+
+def _actor(request: Request):
+    return getattr(request.state, "actor", None)
 
 
 def _bump_version(version: str) -> str:
@@ -165,9 +174,10 @@ def _sync_plugin(
 
 
 @router.get("", response_model=list[PluginOut])
-def list_plugins(marketplace_slug: str):
+def list_plugins(marketplace_slug: str, request: Request):
     with get_connection() as conn:
         _get_marketplace_or_404(conn, marketplace_slug)
+        require_marketplace_read(conn, _actor(request), marketplace_slug)
         rows = conn.execute(
             select(plugins).where(plugins.c.marketplace_slug == marketplace_slug).order_by(plugins.c.slug)
         ).mappings().all()
@@ -175,11 +185,12 @@ def list_plugins(marketplace_slug: str):
 
 
 @router.post("", response_model=PluginOut, status_code=201)
-def create_plugin(marketplace_slug: str, body: PluginCreate):
+def create_plugin(marketplace_slug: str, body: PluginCreate, request: Request):
     plugin_slug = make_slug(body.displayName)
     now = int(time.time())
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug)
         existing = conn.execute(
             select(plugins.c.slug).where(
                 plugins.c.marketplace_slug == marketplace_slug,
@@ -218,18 +229,20 @@ def create_plugin(marketplace_slug: str, body: PluginCreate):
 
 
 @router.get("/{plugin_slug}", response_model=PluginOut)
-def get_plugin(marketplace_slug: str, plugin_slug: str):
+def get_plugin(marketplace_slug: str, plugin_slug: str, request: Request):
     with get_connection() as conn:
         _get_marketplace_or_404(conn, marketplace_slug)
+        require_marketplace_read(conn, _actor(request), marketplace_slug)
         row = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
         return _plugin_out(row, conn)
 
 
 @router.put("/{plugin_slug}", response_model=PluginOut)
-def update_plugin(marketplace_slug: str, plugin_slug: str, body: PluginUpdate):
+def update_plugin(marketplace_slug: str, plugin_slug: str, body: PluginUpdate, request: Request):
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         current = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
     updates: dict[str, Any] = {}
     if body.displayName is not None:
         updates["display_name"] = body.displayName
@@ -257,10 +270,11 @@ def update_plugin(marketplace_slug: str, plugin_slug: str, body: PluginUpdate):
 
 
 @router.delete("/{plugin_slug}", status_code=204)
-def delete_plugin(marketplace_slug: str, plugin_slug: str):
+def delete_plugin(marketplace_slug: str, plugin_slug: str, request: Request):
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
         removal = write_path.remove_plugin_files(plugin_slug, conn, marketplace_slug)
     try:
         with get_transaction() as conn:
@@ -278,15 +292,17 @@ def delete_plugin(marketplace_slug: str, plugin_slug: str):
                 author_email=mkt["owner_email"],
                 extra_files=removal,
             )
+            record_audit(conn, _actor(request), "plugin.delete", "plugin", f"{marketplace_slug}/{plugin_slug}")
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise
 
 
 @router.get("/{plugin_slug}/skills", response_model=list[SkillOut])
-def list_plugin_skills(marketplace_slug: str, plugin_slug: str):
+def list_plugin_skills(marketplace_slug: str, plugin_slug: str, request: Request):
     with get_connection() as conn:
         _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_read(conn, _actor(request), marketplace_slug)
         rows = conn.execute(
             select(skills).where(
                 skills.c.marketplace_slug == marketplace_slug,
@@ -297,12 +313,13 @@ def list_plugin_skills(marketplace_slug: str, plugin_slug: str):
 
 
 @router.post("/{plugin_slug}/skills", response_model=SkillOut, status_code=201)
-def create_plugin_skill(marketplace_slug: str, plugin_slug: str, body: SkillCreate):
+def create_plugin_skill(marketplace_slug: str, plugin_slug: str, body: SkillCreate, request: Request):
     skill_slug = make_slug(body.displayName)
     now = int(time.time())
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
         existing = conn.execute(
             select(skills.c.slug).where(
                 skills.c.marketplace_slug == marketplace_slug,
@@ -355,9 +372,10 @@ def create_plugin_skill(marketplace_slug: str, plugin_slug: str, body: SkillCrea
 
 
 @router.get("/{plugin_slug}/skills/{skill_slug}", response_model=SkillOut)
-def get_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str):
+def get_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str, request: Request):
     with get_connection() as conn:
         _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_read(conn, _actor(request), marketplace_slug)
         row = conn.execute(
             select(skills).where(
                 skills.c.marketplace_slug == marketplace_slug,
@@ -371,10 +389,11 @@ def get_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str):
 
 
 @router.put("/{plugin_slug}/skills/{skill_slug}", response_model=SkillOut)
-def update_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str, body: SkillUpdate):
+def update_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str, body: SkillUpdate, request: Request):
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
         skill = conn.execute(
             select(skills).where(
                 skills.c.marketplace_slug == marketplace_slug,
@@ -434,10 +453,11 @@ def update_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str
 
 
 @router.delete("/{plugin_slug}/skills/{skill_slug}", status_code=204)
-def delete_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str):
+def delete_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str, request: Request):
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
         existing = conn.execute(
             select(skills.c.slug).where(
                 skills.c.marketplace_slug == marketplace_slug,
@@ -474,17 +494,17 @@ def delete_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str
 
 
 @router.get("/{plugin_slug}/hooks", response_model=list[HookOut])
-def list_hooks(marketplace_slug: str, plugin_slug: str):
-    return _list_component(marketplace_slug, plugin_slug, plugin_hooks, _hook_out)
+def list_hooks(marketplace_slug: str, plugin_slug: str, request: Request):
+    return _list_component(marketplace_slug, plugin_slug, plugin_hooks, _hook_out, request)
 
 
 @router.post("/{plugin_slug}/hooks", response_model=HookOut, status_code=201)
-def create_hook(marketplace_slug: str, plugin_slug: str, body: HookCreate):
-    return _create_hook(marketplace_slug, plugin_slug, body)
+def create_hook(marketplace_slug: str, plugin_slug: str, body: HookCreate, request: Request):
+    return _create_hook(marketplace_slug, plugin_slug, body, request)
 
 
 @router.put("/{plugin_slug}/hooks/{component_slug}", response_model=HookOut)
-def update_hook(marketplace_slug: str, plugin_slug: str, component_slug: str, body: HookUpdate):
+def update_hook(marketplace_slug: str, plugin_slug: str, component_slug: str, body: HookUpdate, request: Request):
     updates: dict[str, Any] = {}
     if body.displayName is not None:
         updates["display_name"] = body.displayName
@@ -494,21 +514,21 @@ def update_hook(marketplace_slug: str, plugin_slug: str, component_slug: str, bo
         updates["matcher"] = body.matcher
     if body.handler is not None:
         updates["handler_json"] = body.handler.model_dump_json(exclude_none=True)
-    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_hooks, updates, f"Update hook: {component_slug}", _hook_out)
+    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_hooks, updates, f"Update hook: {component_slug}", _hook_out, request)
 
 
 @router.delete("/{plugin_slug}/hooks/{component_slug}", status_code=204)
-def delete_hook(marketplace_slug: str, plugin_slug: str, component_slug: str):
-    _delete_component(marketplace_slug, plugin_slug, component_slug, plugin_hooks, f"Delete hook: {component_slug}")
+def delete_hook(marketplace_slug: str, plugin_slug: str, component_slug: str, request: Request):
+    _delete_component(marketplace_slug, plugin_slug, component_slug, plugin_hooks, f"Delete hook: {component_slug}", request=request)
 
 
 @router.get("/{plugin_slug}/agents", response_model=list[AgentOut])
-def list_agents(marketplace_slug: str, plugin_slug: str):
-    return _list_component(marketplace_slug, plugin_slug, plugin_agents, _agent_out)
+def list_agents(marketplace_slug: str, plugin_slug: str, request: Request):
+    return _list_component(marketplace_slug, plugin_slug, plugin_agents, _agent_out, request)
 
 
 @router.post("/{plugin_slug}/agents", response_model=AgentOut, status_code=201)
-def create_agent(marketplace_slug: str, plugin_slug: str, body: AgentCreate):
+def create_agent(marketplace_slug: str, plugin_slug: str, body: AgentCreate, request: Request):
     slug = make_slug(body.displayName)
     now = int(time.time())
     return _insert_component(
@@ -527,11 +547,12 @@ def create_agent(marketplace_slug: str, plugin_slug: str, body: AgentCreate):
         },
         f"Add agent: {slug}",
         _agent_out,
+        request,
     )
 
 
 @router.put("/{plugin_slug}/agents/{component_slug}", response_model=AgentOut)
-def update_agent(marketplace_slug: str, plugin_slug: str, component_slug: str, body: AgentUpdate):
+def update_agent(marketplace_slug: str, plugin_slug: str, component_slug: str, body: AgentUpdate, request: Request):
     updates: dict[str, Any] = {}
     if body.displayName is not None:
         updates["display_name"] = body.displayName
@@ -541,11 +562,11 @@ def update_agent(marketplace_slug: str, plugin_slug: str, component_slug: str, b
         updates["prompt"] = body.prompt
     if body.config is not None:
         updates["config_json"] = json.dumps(body.config)
-    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_agents, updates, f"Update agent: {component_slug}", _agent_out)
+    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_agents, updates, f"Update agent: {component_slug}", _agent_out, request)
 
 
 @router.delete("/{plugin_slug}/agents/{component_slug}", status_code=204)
-def delete_agent(marketplace_slug: str, plugin_slug: str, component_slug: str):
+def delete_agent(marketplace_slug: str, plugin_slug: str, component_slug: str, request: Request):
     _delete_component(
         marketplace_slug,
         plugin_slug,
@@ -553,16 +574,17 @@ def delete_agent(marketplace_slug: str, plugin_slug: str, component_slug: str):
         plugin_agents,
         f"Delete agent: {component_slug}",
         {f"plugins/{plugin_slug}/agents/{component_slug}.md": None},
+        request,
     )
 
 
 @router.get("/{plugin_slug}/mcp-servers", response_model=list[McpServerOut])
-def list_mcp_servers(marketplace_slug: str, plugin_slug: str):
-    return _list_component(marketplace_slug, plugin_slug, plugin_mcp_servers, _mcp_out)
+def list_mcp_servers(marketplace_slug: str, plugin_slug: str, request: Request):
+    return _list_component(marketplace_slug, plugin_slug, plugin_mcp_servers, _mcp_out, request)
 
 
 @router.post("/{plugin_slug}/mcp-servers", response_model=McpServerOut, status_code=201)
-def create_mcp_server(marketplace_slug: str, plugin_slug: str, body: McpServerCreate):
+def create_mcp_server(marketplace_slug: str, plugin_slug: str, body: McpServerCreate, request: Request):
     slug = make_slug(body.displayName)
     now = int(time.time())
     return _insert_component(
@@ -579,31 +601,32 @@ def create_mcp_server(marketplace_slug: str, plugin_slug: str, body: McpServerCr
         },
         f"Add MCP server: {slug}",
         _mcp_out,
+        request,
     )
 
 
 @router.put("/{plugin_slug}/mcp-servers/{component_slug}", response_model=McpServerOut)
-def update_mcp_server(marketplace_slug: str, plugin_slug: str, component_slug: str, body: McpServerUpdate):
+def update_mcp_server(marketplace_slug: str, plugin_slug: str, component_slug: str, body: McpServerUpdate, request: Request):
     updates: dict[str, Any] = {}
     if body.displayName is not None:
         updates["display_name"] = body.displayName
     if body.config is not None:
         updates["config_json"] = json.dumps(body.config)
-    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_mcp_servers, updates, f"Update MCP server: {component_slug}", _mcp_out)
+    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_mcp_servers, updates, f"Update MCP server: {component_slug}", _mcp_out, request)
 
 
 @router.delete("/{plugin_slug}/mcp-servers/{component_slug}", status_code=204)
-def delete_mcp_server(marketplace_slug: str, plugin_slug: str, component_slug: str):
-    _delete_component(marketplace_slug, plugin_slug, component_slug, plugin_mcp_servers, f"Delete MCP server: {component_slug}")
+def delete_mcp_server(marketplace_slug: str, plugin_slug: str, component_slug: str, request: Request):
+    _delete_component(marketplace_slug, plugin_slug, component_slug, plugin_mcp_servers, f"Delete MCP server: {component_slug}", request=request)
 
 
 @router.get("/{plugin_slug}/commands", response_model=list[CommandOut])
-def list_commands(marketplace_slug: str, plugin_slug: str):
-    return _list_component(marketplace_slug, plugin_slug, plugin_commands, _command_out)
+def list_commands(marketplace_slug: str, plugin_slug: str, request: Request):
+    return _list_component(marketplace_slug, plugin_slug, plugin_commands, _command_out, request)
 
 
 @router.post("/{plugin_slug}/commands", response_model=CommandOut, status_code=201)
-def create_command(marketplace_slug: str, plugin_slug: str, body: CommandCreate):
+def create_command(marketplace_slug: str, plugin_slug: str, body: CommandCreate, request: Request):
     slug = make_slug(body.displayName)
     now = int(time.time())
     return _insert_component(
@@ -621,11 +644,12 @@ def create_command(marketplace_slug: str, plugin_slug: str, body: CommandCreate)
         },
         f"Add command: {slug}",
         _command_out,
+        request,
     )
 
 
 @router.put("/{plugin_slug}/commands/{component_slug}", response_model=CommandOut)
-def update_command(marketplace_slug: str, plugin_slug: str, component_slug: str, body: CommandUpdate):
+def update_command(marketplace_slug: str, plugin_slug: str, component_slug: str, body: CommandUpdate, request: Request):
     updates: dict[str, Any] = {}
     if body.displayName is not None:
         updates["display_name"] = body.displayName
@@ -633,11 +657,11 @@ def update_command(marketplace_slug: str, plugin_slug: str, component_slug: str,
         updates["description"] = body.description
     if body.content is not None:
         updates["content"] = body.content
-    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_commands, updates, f"Update command: {component_slug}", _command_out)
+    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_commands, updates, f"Update command: {component_slug}", _command_out, request)
 
 
 @router.delete("/{plugin_slug}/commands/{component_slug}", status_code=204)
-def delete_command(marketplace_slug: str, plugin_slug: str, component_slug: str):
+def delete_command(marketplace_slug: str, plugin_slug: str, component_slug: str, request: Request):
     _delete_component(
         marketplace_slug,
         plugin_slug,
@@ -645,16 +669,17 @@ def delete_command(marketplace_slug: str, plugin_slug: str, component_slug: str)
         plugin_commands,
         f"Delete command: {component_slug}",
         {f"plugins/{plugin_slug}/commands/{component_slug}.md": None},
+        request,
     )
 
 
 @router.get("/{plugin_slug}/monitors", response_model=list[MonitorOut])
-def list_monitors(marketplace_slug: str, plugin_slug: str):
-    return _list_component(marketplace_slug, plugin_slug, plugin_monitors, _monitor_out)
+def list_monitors(marketplace_slug: str, plugin_slug: str, request: Request):
+    return _list_component(marketplace_slug, plugin_slug, plugin_monitors, _monitor_out, request)
 
 
 @router.post("/{plugin_slug}/monitors", response_model=MonitorOut, status_code=201)
-def create_monitor(marketplace_slug: str, plugin_slug: str, body: MonitorCreate):
+def create_monitor(marketplace_slug: str, plugin_slug: str, body: MonitorCreate, request: Request):
     slug = make_slug(body.displayName)
     now = int(time.time())
     return _insert_component(
@@ -673,11 +698,12 @@ def create_monitor(marketplace_slug: str, plugin_slug: str, body: MonitorCreate)
         },
         f"Add monitor: {slug}",
         _monitor_out,
+        request,
     )
 
 
 @router.put("/{plugin_slug}/monitors/{component_slug}", response_model=MonitorOut)
-def update_monitor(marketplace_slug: str, plugin_slug: str, component_slug: str, body: MonitorUpdate):
+def update_monitor(marketplace_slug: str, plugin_slug: str, component_slug: str, body: MonitorUpdate, request: Request):
     updates: dict[str, Any] = {}
     if body.displayName is not None:
         updates["display_name"] = body.displayName
@@ -687,18 +713,19 @@ def update_monitor(marketplace_slug: str, plugin_slug: str, component_slug: str,
         updates["description"] = body.description
     if body.when is not None:
         updates["when"] = body.when
-    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_monitors, updates, f"Update monitor: {component_slug}", _monitor_out)
+    return _update_component(marketplace_slug, plugin_slug, component_slug, plugin_monitors, updates, f"Update monitor: {component_slug}", _monitor_out, request)
 
 
 @router.delete("/{plugin_slug}/monitors/{component_slug}", status_code=204)
-def delete_monitor(marketplace_slug: str, plugin_slug: str, component_slug: str):
-    _delete_component(marketplace_slug, plugin_slug, component_slug, plugin_monitors, f"Delete monitor: {component_slug}")
+def delete_monitor(marketplace_slug: str, plugin_slug: str, component_slug: str, request: Request):
+    _delete_component(marketplace_slug, plugin_slug, component_slug, plugin_monitors, f"Delete monitor: {component_slug}", request=request)
 
 
 @router.get("/{plugin_slug}/settings", response_model=PluginSettingsOut)
-def get_settings(marketplace_slug: str, plugin_slug: str):
+def get_settings(marketplace_slug: str, plugin_slug: str, request: Request):
     with get_connection() as conn:
         _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_read(conn, _actor(request), marketplace_slug)
         row = conn.execute(select(plugin_settings).where(
             plugin_settings.c.marketplace_slug == marketplace_slug,
             plugin_settings.c.plugin_slug == plugin_slug,
@@ -709,11 +736,12 @@ def get_settings(marketplace_slug: str, plugin_slug: str):
 
 
 @router.put("/{plugin_slug}/settings", response_model=PluginSettingsOut)
-def put_settings(marketplace_slug: str, plugin_slug: str, body: PluginSettingsIn):
+def put_settings(marketplace_slug: str, plugin_slug: str, body: PluginSettingsIn, request: Request):
     now = int(time.time())
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
     try:
         with get_transaction() as conn:
             existing = conn.execute(select(plugin_settings).where(
@@ -740,12 +768,13 @@ def put_settings(marketplace_slug: str, plugin_slug: str, body: PluginSettingsIn
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise
-    return get_settings(marketplace_slug, plugin_slug)
+    return get_settings(marketplace_slug, plugin_slug, request)
 
 
-def _list_component(marketplace_slug: str, plugin_slug: str, table, out_fn):
+def _list_component(marketplace_slug: str, plugin_slug: str, table, out_fn, request: Request):
     with get_connection() as conn:
         _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_read(conn, _actor(request), marketplace_slug)
         rows = conn.execute(select(table).where(
             table.c.marketplace_slug == marketplace_slug,
             table.c.plugin_slug == plugin_slug,
@@ -753,10 +782,11 @@ def _list_component(marketplace_slug: str, plugin_slug: str, table, out_fn):
         return [out_fn(row) for row in rows]
 
 
-def _insert_component(marketplace_slug: str, plugin_slug: str, slug: str, table, values: dict[str, Any], message: str, out_fn):
+def _insert_component(marketplace_slug: str, plugin_slug: str, slug: str, table, values: dict[str, Any], message: str, out_fn, request: Request):
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
         existing = conn.execute(select(table.c.slug).where(
             table.c.marketplace_slug == marketplace_slug,
             table.c.plugin_slug == plugin_slug,
@@ -785,10 +815,19 @@ def _insert_component(marketplace_slug: str, plugin_slug: str, slug: str, table,
         return out_fn(row)
 
 
-def _delete_component(marketplace_slug: str, plugin_slug: str, component_slug: str, table, message: str, extra_files: dict[str, None] | None = None) -> None:
+def _delete_component(
+    marketplace_slug: str,
+    plugin_slug: str,
+    component_slug: str,
+    table,
+    message: str,
+    extra_files: dict[str, None] | None = None,
+    request: Request | None = None,
+) -> None:
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request) if request else None, marketplace_slug, plugin_slug)
         existing = conn.execute(select(table.c.slug).where(
             table.c.marketplace_slug == marketplace_slug,
             table.c.plugin_slug == plugin_slug,
@@ -814,10 +853,11 @@ def _delete_component(marketplace_slug: str, plugin_slug: str, component_slug: s
         raise
 
 
-def _update_component(marketplace_slug: str, plugin_slug: str, component_slug: str, table, updates: dict[str, Any], message: str, out_fn):
+def _update_component(marketplace_slug: str, plugin_slug: str, component_slug: str, table, updates: dict[str, Any], message: str, out_fn, request: Request):
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
+        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
         current = conn.execute(select(table).where(
             table.c.marketplace_slug == marketplace_slug,
             table.c.plugin_slug == plugin_slug,
@@ -853,7 +893,7 @@ def _update_component(marketplace_slug: str, plugin_slug: str, component_slug: s
         return out_fn(row)
 
 
-def _create_hook(marketplace_slug: str, plugin_slug: str, body: HookCreate):
+def _create_hook(marketplace_slug: str, plugin_slug: str, body: HookCreate, request: Request):
     slug = make_slug(body.displayName)
     now = int(time.time())
     return _insert_component(
@@ -872,6 +912,7 @@ def _create_hook(marketplace_slug: str, plugin_slug: str, body: HookCreate):
         },
         f"Add hook: {slug}",
         _hook_out,
+        request,
     )
 
 

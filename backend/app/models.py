@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, ForeignKeyConstraint, Integer, MetaData, PrimaryKeyConstraint, Table, Text
+from sqlalchemy import Column, ForeignKey, ForeignKeyConstraint, Integer, MetaData, PrimaryKeyConstraint, Table, Text, UniqueConstraint
 
 metadata = MetaData()
 
@@ -9,8 +9,119 @@ marketplaces = Table(
     Column("display_name", Text, nullable=False),
     Column("owner_name", Text, nullable=False),
     Column("owner_email", Text, nullable=False),
+    Column("visibility", Text, nullable=False, default="workspace"),
     Column("created_at", Integer, nullable=False),
     Column("updated_at", Integer, nullable=False),
+)
+
+workspace_settings = Table(
+    "workspace_settings",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("access_mode", Text, nullable=False, default="public"),
+    Column("marketplace_creation", Text, nullable=False, default="authenticated"),
+    Column("created_at", Integer, nullable=False),
+    Column("updated_at", Integer, nullable=False),
+)
+
+users = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("provider", Text, nullable=False),
+    Column("provider_subject", Text, nullable=False),
+    Column("email", Text, nullable=False),
+    Column("display_name", Text, nullable=False),
+    Column("disabled_at", Integer, nullable=True),
+    Column("created_at", Integer, nullable=False),
+    Column("updated_at", Integer, nullable=False),
+    UniqueConstraint("provider", "provider_subject"),
+    UniqueConstraint("email"),
+)
+
+groups = Table(
+    "groups",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("provider", Text, nullable=False),
+    Column("provider_key", Text, nullable=False),
+    Column("display_name", Text, nullable=False),
+    Column("created_at", Integer, nullable=False),
+    Column("updated_at", Integer, nullable=False),
+    UniqueConstraint("provider", "provider_key"),
+)
+
+user_groups = Table(
+    "user_groups",
+    metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("group_id", Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False),
+    Column("created_at", Integer, nullable=False),
+    PrimaryKeyConstraint("user_id", "group_id"),
+)
+
+workspace_role_grants = Table(
+    "workspace_role_grants",
+    metadata,
+    Column("principal_type", Text, nullable=False),
+    Column("principal_id", Integer, nullable=False),
+    Column("role", Text, nullable=False),
+    Column("created_at", Integer, nullable=False),
+    PrimaryKeyConstraint("principal_type", "principal_id", "role"),
+)
+
+marketplace_role_grants = Table(
+    "marketplace_role_grants",
+    metadata,
+    Column("marketplace_slug", Text, ForeignKey("marketplaces.slug", ondelete="CASCADE"), nullable=False),
+    Column("principal_type", Text, nullable=False),
+    Column("principal_id", Integer, nullable=False),
+    Column("role", Text, nullable=False),
+    Column("created_at", Integer, nullable=False),
+    PrimaryKeyConstraint("marketplace_slug", "principal_type", "principal_id", "role"),
+)
+
+plugin_role_grants = Table(
+    "plugin_role_grants",
+    metadata,
+    Column("marketplace_slug", Text, nullable=False),
+    Column("plugin_slug", Text, nullable=False),
+    Column("principal_type", Text, nullable=False),
+    Column("principal_id", Integer, nullable=False),
+    Column("role", Text, nullable=False),
+    Column("created_at", Integer, nullable=False),
+    PrimaryKeyConstraint("marketplace_slug", "plugin_slug", "principal_type", "principal_id", "role"),
+    ForeignKeyConstraint(
+        ["marketplace_slug", "plugin_slug"],
+        ["plugins.marketplace_slug", "plugins.slug"],
+        ondelete="CASCADE",
+    ),
+)
+
+access_tokens = Table(
+    "access_tokens",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("name", Text, nullable=False),
+    Column("token_hash", Text, nullable=False, unique=True),
+    Column("scope", Text, nullable=False),
+    Column("marketplace_slug", Text, ForeignKey("marketplaces.slug", ondelete="CASCADE"), nullable=True),
+    Column("created_by_user_id", Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("created_at", Integer, nullable=False),
+    Column("expires_at", Integer, nullable=True),
+    Column("revoked_at", Integer, nullable=True),
+)
+
+audit_events = Table(
+    "audit_events",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("actor_user_id", Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    Column("action", Text, nullable=False),
+    Column("target_type", Text, nullable=False),
+    Column("target_id", Text, nullable=False),
+    Column("metadata_json", Text, nullable=False),
+    Column("created_at", Integer, nullable=False),
 )
 
 skills = Table(

@@ -4,14 +4,15 @@ Git smart-HTTP serving for /m/{slug}/git/repo.git/*
 Delegates to dulwich WSGI app (cached in git_store) via a2wsgi.
 Read-only — only git-upload-pack is served.
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
 from app.db import get_connection
+from app.lib.auth import public_read_dependencies, require_marketplace_read
 from app.lib.git_store import get_wsgi_app
 from app.models import marketplaces
 
-router = APIRouter(tags=["git"])
+router = APIRouter(tags=["git"], dependencies=[Depends(public_read_dependencies)])
 
 
 @router.api_route("/m/{slug}/git/repo.git/{path:path}", methods=["GET", "POST"])
@@ -22,6 +23,13 @@ async def git_smart_http(slug: str, path: str, request: Request):
         ).one_or_none()
     if exists is None:
         raise HTTPException(status_code=404, detail="Marketplace not found")
+    with get_connection() as conn:
+        require_marketplace_read(
+            conn,
+            getattr(request.state, "actor", None),
+            slug,
+            getattr(request.state, "read_token", None),
+        )
 
     wsgi_app = get_wsgi_app(slug)
     if wsgi_app is None:

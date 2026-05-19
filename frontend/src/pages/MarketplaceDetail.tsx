@@ -7,6 +7,7 @@ interface Marketplace {
   displayName: string;
   ownerName: string;
   ownerEmail: string;
+  visibility: "workspace" | "restricted";
   pluginCount?: number;
 }
 
@@ -34,9 +35,12 @@ export default function MarketplaceDetail() {
   const [tab, setTab] = useState<Tab>("plugins");
   const [loading, setLoading] = useState(true);
   const [settingsForm, setSettingsForm] = useState({ displayName: "", ownerName: "", ownerEmail: "" });
+  const [visibility, setVisibility] = useState<"workspace" | "restricted">("workspace");
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [tokenName, setTokenName] = useState("Claude read access");
+  const [createdToken, setCreatedToken] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -52,6 +56,7 @@ export default function MarketplaceDetail() {
     setMarketplace(mkt);
     setPlugins(pluginsRes.ok ? await pluginsRes.json() : []);
     setSettingsForm({ displayName: mkt.displayName, ownerName: mkt.ownerName, ownerEmail: mkt.ownerEmail });
+    setVisibility(mkt.visibility);
     setLoading(false);
   };
 
@@ -70,7 +75,7 @@ export default function MarketplaceDetail() {
     const r = await fetch(`/api/marketplaces/${slug}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settingsForm),
+      body: JSON.stringify({ ...settingsForm, visibility }),
     });
     setSettingsSaving(false);
     setSettingsMsg(r.ok ? "Saved." : "Save failed.");
@@ -80,6 +85,19 @@ export default function MarketplaceDetail() {
   const handleDeleteMarketplace = async () => {
     await fetch(`/api/marketplaces/${slug}`, { method: "DELETE" });
     navigate("/admin");
+  };
+
+  const handleCreateToken = async () => {
+    setCreatedToken("");
+    const r = await fetch("/api/access-tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: tokenName, marketplaceSlug: slug }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      setCreatedToken(data.token);
+    }
   };
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
@@ -161,6 +179,17 @@ export default function MarketplaceDetail() {
               <SettingsField label="Name" value={settingsForm.displayName} onChange={(v) => setSettingsForm((f) => ({ ...f, displayName: v }))} />
               <SettingsField label="Owner name" value={settingsForm.ownerName} onChange={(v) => setSettingsForm((f) => ({ ...f, ownerName: v }))} />
               <SettingsField label="Owner email" type="email" value={settingsForm.ownerEmail} onChange={(v) => setSettingsForm((f) => ({ ...f, ownerEmail: v }))} />
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Visibility</span>
+                <select
+                  value={visibility}
+                  onChange={(e) => setVisibility(e.target.value as "workspace" | "restricted")}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
+                >
+                  <option value="workspace">Workspace</option>
+                  <option value="restricted">Restricted</option>
+                </select>
+              </label>
               <div className="flex items-center gap-3">
                 <button type="submit" disabled={settingsSaving} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">
                   {settingsSaving ? "Saving..." : "Save"}
@@ -168,6 +197,17 @@ export default function MarketplaceDetail() {
                 {settingsMsg && <span className="text-sm text-slate-500">{settingsMsg}</span>}
               </div>
             </form>
+
+            <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
+              <h2 className="text-sm font-semibold text-slate-700">Agent read token</h2>
+              <SettingsField label="Token name" value={tokenName} onChange={setTokenName} />
+              <button type="button" onClick={handleCreateToken} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+                Create token
+              </button>
+              {createdToken && (
+                <CopyLine label="Read token" value={createdToken} />
+              )}
+            </div>
 
             <div className="rounded-lg border border-red-200 bg-white p-6">
               <h2 className="mb-2 text-sm font-semibold text-red-700">Danger zone</h2>

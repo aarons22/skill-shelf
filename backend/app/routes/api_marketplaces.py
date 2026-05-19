@@ -1,13 +1,23 @@
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, func, insert, select, update
 
 from app.db import get_connection, get_transaction
+from app.lib.auth import (
+    Actor,
+    MARKETPLACE_ADMIN,
+    can_create_marketplace,
+    get_optional_actor,
+    require_marketplace_admin,
+    require_marketplace_read,
+    record_audit,
+    visible_marketplace_condition,
+)
 from app.lib import git_store, write_path
 from app.lib.slug import make_slug
-from app.models import marketplaces, plugins, skills
+from app.models import marketplace_role_grants, marketplaces, plugins, skills
 from app.schemas import MarketplaceCreate, MarketplaceOut, MarketplaceUpdate
 
 router = APIRouter(prefix="/api/marketplaces", tags=["marketplaces"])
@@ -19,6 +29,7 @@ def _row_to_out(row, skill_count: int | None = None) -> dict[str, Any]:
         "displayName": row["display_name"],
         "ownerName": row["owner_name"],
         "ownerEmail": row["owner_email"],
+        "visibility": row["visibility"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
         "skillCount": skill_count,
@@ -27,9 +38,13 @@ def _row_to_out(row, skill_count: int | None = None) -> dict[str, Any]:
 
 
 @router.get("", response_model=list[MarketplaceOut])
-def list_marketplaces():
+def list_marketplaces(request: Request, actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
-        rows = conn.execute(select(marketplaces).order_by(marketplaces.c.display_name)).mappings().all()
+        stmt = select(marketplaces).order_by(marketplaces.c.display_name)
+        condition = visible_marketplace_condition(conn, actor)
+        if condition is not None:
+            stmt = stmt.where(condition)
+        rows = conn.execute(stmt).mappings().all()
         result = []
         for row in rows:
             skill_count = conn.execute(
@@ -45,13 +60,14 @@ def list_marketplaces():
 
 
 @router.get("/{slug}", response_model=MarketplaceOut)
-def get_marketplace(slug: str):
+def get_marketplace(slug: str, request: Request, actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
         row = conn.execute(
             select(marketplaces).where(marketplaces.c.slug == slug)
         ).mappings().one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="Marketplace not found")
+        require_marketplace_read(conn, actor, slug)
         skill_count = conn.execute(
             select(func.count()).where(skills.c.marketplace_slug == slug)
         ).scalar()
@@ -64,12 +80,14 @@ def get_marketplace(slug: str):
 
 
 @router.post("", response_model=MarketplaceOut, status_code=201)
-def create_marketplace(body: MarketplaceCreate):
+def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor | None = Depends(get_optional_actor)):
     slug = make_slug(body.displayName)
     now = int(time.time())
 
     # Collision check (outside transaction to avoid locking)
     with get_connection() as conn:
+        if not can_create_marketplace(conn, actor):
+            raise HTTPException(status_code=403, detail="Marketplace creation is not allowed")
         existing = conn.execute(
             select(marketplaces.c.slug).where(marketplaces.c.slug == slug)
         ).one_or_none()
@@ -86,9 +104,18 @@ def create_marketplace(body: MarketplaceCreate):
                 display_name=body.displayName,
                 owner_name=body.ownerName,
                 owner_email=body.ownerEmail,
+                visibility="workspace",
                 created_at=now,
                 updated_at=now,
             ))
+            if actor and actor.user_id is not None:
+                conn.execute(insert(marketplace_role_grants).values(
+                    marketplace_slug=slug,
+                    principal_type="user",
+                    principal_id=actor.user_id,
+                    role=MARKETPLACE_ADMIN,
+                    created_at=now,
+                ))
             write_path.sync_and_commit(
                 slug, conn,
                 commit_message="Initialize marketplace",
@@ -109,13 +136,15 @@ def create_marketplace(body: MarketplaceCreate):
 
 
 @router.put("/{slug}", response_model=MarketplaceOut)
-def update_marketplace(slug: str, body: MarketplaceUpdate):
+def update_marketplace(slug: str, body: MarketplaceUpdate, request: Request, actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
         row = conn.execute(
             select(marketplaces).where(marketplaces.c.slug == slug)
         ).mappings().one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Marketplace not found")
+    with get_connection() as conn:
+        require_marketplace_admin(conn, actor, slug)
 
     updates: dict = {}
     if body.displayName is not None:
@@ -124,6 +153,8 @@ def update_marketplace(slug: str, body: MarketplaceUpdate):
         updates["owner_name"] = body.ownerName
     if body.ownerEmail is not None:
         updates["owner_email"] = body.ownerEmail
+    if body.visibility is not None:
+        updates["visibility"] = body.visibility
 
     if not updates:
         with get_connection() as conn:
@@ -172,16 +203,20 @@ def update_marketplace(slug: str, body: MarketplaceUpdate):
 
 
 @router.delete("/{slug}", status_code=204)
-def delete_marketplace(slug: str):
+def delete_marketplace(slug: str, request: Request, actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
         row = conn.execute(
             select(marketplaces.c.slug).where(marketplaces.c.slug == slug)
         ).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Marketplace not found")
+    with get_connection() as conn:
+        require_marketplace_admin(conn, actor, slug)
 
     with get_transaction() as conn:
+        actor = require_marketplace_admin(conn, actor, slug)
         conn.execute(delete(marketplaces).where(marketplaces.c.slug == slug))
+        record_audit(conn, actor, "marketplace.delete", "marketplace", slug)
 
     # delete_repo also evicts the WSGI cache for this slug
     git_store.delete_repo(slug)

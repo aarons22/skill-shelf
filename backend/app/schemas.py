@@ -12,6 +12,7 @@ class MarketplaceUpdate(BaseModel):
     displayName: Optional[str] = None
     ownerName: Optional[str] = None
     ownerEmail: Optional[str] = None
+    visibility: Optional[Literal["workspace", "restricted"]] = None
 
 
 class MarketplaceOut(BaseModel):
@@ -19,6 +20,7 @@ class MarketplaceOut(BaseModel):
     displayName: str
     ownerName: str
     ownerEmail: str
+    visibility: Literal["workspace", "restricted"] = "workspace"
     createdAt: int
     updatedAt: int
     skillCount: Optional[int] = None
@@ -269,3 +271,61 @@ class PluginSettingsOut(BaseModel):
     pluginSlug: str
     settings: dict[str, Any]
     updatedAt: int
+
+
+class CurrentUserOut(BaseModel):
+    authenticated: bool
+    id: Optional[int] = None
+    email: Optional[str] = None
+    displayName: Optional[str] = None
+    workspaceAdmin: bool = False
+
+
+class WorkspaceSettingsOut(BaseModel):
+    accessMode: Literal["public", "authenticated", "restricted"]
+    marketplaceCreation: Literal["authenticated", "workspace_admin"]
+
+
+class WorkspaceSettingsUpdate(BaseModel):
+    accessMode: Optional[Literal["public", "authenticated", "restricted"]] = None
+    marketplaceCreation: Optional[Literal["authenticated", "workspace_admin"]] = None
+
+
+class PrincipalGrantIn(BaseModel):
+    principalType: Literal["user", "group"]
+    principalId: int
+    role: Literal["marketplace_admin", "marketplace_maintainer", "viewer"]
+
+
+class MarketplaceGrantOut(BaseModel):
+    marketplaceSlug: str
+    principalType: Literal["user", "group"]
+    principalId: int
+    role: str
+    createdAt: int
+
+
+class AccessTokenCreate(BaseModel):
+    name: str
+    marketplaceSlug: Optional[str] = None
+    expiresAt: Optional[int] = None
+
+
+class AccessTokenCreatedOut(BaseModel):
+    id: int
+    name: str
+    token: str
+    scope: str
+    marketplaceSlug: Optional[str] = None
+    expiresAt: Optional[int] = None
+    createdAt: int
+
+
+class AccessTokenOut(BaseModel):
+    id: int
+    name: str
+    scope: str
+    marketplaceSlug: Optional[str] = None
+    expiresAt: Optional[int] = None
+    revokedAt: Optional[int] = None
+    createdAt: int

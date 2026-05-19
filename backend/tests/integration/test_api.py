@@ -279,3 +279,31 @@ def test_multi_capability_plugin_crud(client):
 
     assert client.delete("/api/marketplaces/plugin-team/plugins/ops-toolkit/hooks/format-on-edit").status_code == 204
     assert client.get("/api/marketplaces/plugin-team/plugins/ops-toolkit").json()["hookCount"] == 0
+
+
+def test_restricted_mode_filters_marketplaces_and_allows_scoped_read_tokens(client):
+    headers = {
+        "X-SkillShelf-User-Email": "owner@example.com",
+        "X-SkillShelf-User-Name": "Owner",
+    }
+    r = client.post("/api/marketplaces", headers=headers, json={
+        "displayName": "Private Team",
+        "ownerName": "Owner",
+        "ownerEmail": "owner@example.com",
+    })
+    assert r.status_code == 201
+    assert client.put("/api/marketplaces/private-team", headers=headers, json={"visibility": "restricted"}).status_code == 200
+
+    token_response = client.post("/api/access-tokens", headers=headers, json={
+        "name": "Claude read",
+        "marketplaceSlug": "private-team",
+    })
+    assert token_response.status_code == 201
+    token = token_response.json()["token"]
+
+    assert client.put("/api/workspace/settings", json={"accessMode": "restricted"}).status_code == 200
+    assert client.get("/api/marketplaces").json() == []
+    assert client.get("/m/private-team").status_code == 401
+    assert client.get("/m/private-team", params={"access_token": token}).status_code == 200
+    visible_slugs = {row["slug"] for row in client.get("/api/marketplaces", headers=headers).json()}
+    assert "private-team" in visible_slugs

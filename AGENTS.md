@@ -23,11 +23,10 @@ Internal teams sharing **proprietary** business-process plugins. Single-tenant, 
 
 ### Non-goals for v1
 
-- Authentication or user accounts
 - LLM-assisted skill authoring
 - LSP server, theme, channel, dependency, or userConfig authoring
 - Anthropic Cowork ZIP export
-- Permissions, approval workflows, audit logs
+- Approval workflows
 
 ---
 
@@ -41,6 +40,7 @@ Each marketplace has:
 - A slug (URL-safe id, e.g. `finance-team-skills`)
 - A display name
 - An owner name and email (used as the git author when committing)
+- A visibility (`workspace` or `restricted`)
 - Its own git repo on disk
 - Its own `marketplace.json` endpoint at `/m/<slug>` and `/m/<slug>/marketplace.json`
 - Its own git smart-HTTP endpoint at `/m/<slug>/git/repo.git`
@@ -157,6 +157,7 @@ CREATE TABLE marketplaces (
   display_name  TEXT NOT NULL,
   owner_name    TEXT NOT NULL,
   owner_email   TEXT NOT NULL,
+  visibility    TEXT NOT NULL DEFAULT 'workspace',
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL
 );
@@ -196,6 +197,13 @@ Component tables hang off `(marketplace_slug, plugin_slug)`:
 - `plugin_commands`: `description`, `content`
 - `plugin_monitors`: `command`, `description`, optional `when`
 - `plugin_settings`: one JSON settings document per plugin
+
+Access control tables store provider-neutral identity and local grants:
+- `workspace_settings`: singleton workspace mode (`public`, `authenticated`, or `restricted`) and marketplace creation policy
+- `users`, `groups`, and `user_groups`: local identity records synced from headers/OIDC-style claims
+- `workspace_role_grants`, `marketplace_role_grants`, and `plugin_role_grants`: local role grants for users or groups
+- `access_tokens`: hashed scoped read tokens for marketplace JSON and git clone access
+- `audit_events`: reserved for access and destructive-action audit records
 
 ### On-disk layout inside a marketplace's git repo
 
@@ -289,7 +297,7 @@ Each skill-bearing plugin also has `.codex-plugin/plugin.json` with `name`, `ver
 
 ## API surface
 
-All under `/api`, JSON in / JSON out. No auth in v1.
+All under `/api`, JSON in / JSON out. Access is controlled by workspace mode and local role grants.
 
 ### Marketplaces
 
@@ -298,8 +306,20 @@ All under `/api`, JSON in / JSON out. No auth in v1.
 | `GET` | `/api/marketplaces` | List all |
 | `GET` | `/api/marketplaces/{slug}` | One + skill/plugin counts |
 | `POST` | `/api/marketplaces` | Body: `displayName, ownerName, ownerEmail`; server derives slug; 409 on collision |
-| `PUT` | `/api/marketplaces/{slug}` | Partial update; cannot change slug |
+| `PUT` | `/api/marketplaces/{slug}` | Partial update; cannot change slug; can update `visibility` |
 | `DELETE` | `/api/marketplaces/{slug}` | Cascades to plugins/components, removes on-disk repo |
+
+### Access controls
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/me` | Current user from trusted identity headers |
+| `GET` | `/api/workspace/settings` | Workspace access mode and marketplace creation policy |
+| `PUT` | `/api/workspace/settings` | Workspace-admin only; mode is `public`, `authenticated`, or `restricted` |
+| `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
+| `GET/POST/DELETE` | `/api/access-tokens` | Scoped read token lifecycle |
+
+Roles are `workspace_admin`, `marketplace_admin`, `marketplace_maintainer`, optional `plugin_maintainer`, and `viewer`. In `public` mode, anonymous users can read all marketplaces and the local no-auth development flow keeps write access open until a host configures identity. In `authenticated` mode, workspace-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
 
 ### Plugins and components
 

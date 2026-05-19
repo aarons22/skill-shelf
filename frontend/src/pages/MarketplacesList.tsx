@@ -9,17 +9,42 @@ interface Marketplace {
   createdAt: number;
 }
 
+interface WorkspaceSettings {
+  accessMode: "public" | "authenticated" | "restricted";
+  marketplaceCreation: "authenticated" | "workspace_admin";
+}
+
 export default function MarketplacesList() {
   const [marketplaces, setMarketplaces] = useState<Marketplace[]>([]);
+  const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [settingsMsg, setSettingsMsg] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch("/api/marketplaces")
-      .then((r) => r.json())
-      .then(setMarketplaces)
+    Promise.all([
+      fetch("/api/marketplaces").then((r) => r.json()),
+      fetch("/api/workspace/settings").then((r) => r.json()),
+    ])
+      .then(([marketplaceData, settingsData]) => {
+        setMarketplaces(marketplaceData);
+        setSettings(settingsData);
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  const updateSettings = async (updates: Partial<WorkspaceSettings>) => {
+    if (!settings) return;
+    const next = { ...settings, ...updates };
+    setSettings(next);
+    setSettingsMsg("");
+    const r = await fetch("/api/workspace/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessMode: next.accessMode, marketplaceCreation: next.marketplaceCreation }),
+    });
+    setSettingsMsg(r.ok ? "Saved." : "Save failed.");
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -36,6 +61,36 @@ export default function MarketplacesList() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8">
+        {settings && (
+          <section className="mb-6 rounded-lg border border-gray-200 bg-white p-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-gray-700">Workspace access</span>
+                <select
+                  value={settings.accessMode}
+                  onChange={(e) => updateSettings({ accessMode: e.target.value as WorkspaceSettings["accessMode"] })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="public">Public</option>
+                  <option value="authenticated">Authenticated</option>
+                  <option value="restricted">Restricted</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-gray-700">Marketplace creation</span>
+                <select
+                  value={settings.marketplaceCreation}
+                  onChange={(e) => updateSettings({ marketplaceCreation: e.target.value as WorkspaceSettings["marketplaceCreation"] })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="authenticated">Authenticated users</option>
+                  <option value="workspace_admin">Workspace admins</option>
+                </select>
+              </label>
+            </div>
+            {settingsMsg && <p className="mt-3 text-sm text-gray-500">{settingsMsg}</p>}
+          </section>
+        )}
         {loading ? (
           <p className="text-gray-500">Loading…</p>
         ) : marketplaces.length === 0 ? (
