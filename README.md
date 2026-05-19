@@ -1,122 +1,79 @@
 # SkillShelf
 
-SkillShelf is a self-hostable web app for creating and managing Claude Code plugin marketplaces through a UI. Users create a marketplace, add installable plugins, attach guided components, and copy a Claude Code `/plugin marketplace add ...` snippet without touching git.
+SkillShelf is a self-hostable web app for creating and managing Claude Code and Codex plugin marketplaces. Teams create a marketplace, add installable plugins, attach guided components, and share one marketplace URL without asking plugin authors to touch git.
 
-Each generated marketplace repo contains Claude plugin metadata and Codex metadata for plugins that include skills:
+![SkillShelf basic flow](docs/assets/demo.gif)
 
-- Claude: `.claude-plugin/marketplace.json` and per-plugin `.claude-plugin/plugin.json`
-- Claude plugin components: `skills/`, `hooks/hooks.json`, `agents/*.md`, `.mcp.json`, `commands/*.md`, `monitors/monitors.json`, and `settings.json`
-- Codex: `.agents/plugins/marketplace.json` and per-plugin `.codex-plugin/plugin.json` for skill-bearing plugins
+> The GIF above is a placeholder. Replace `docs/assets/demo.gif` with a short capture of: create marketplace, create plugin, add skill, copy Claude Code snippet, browse marketplace.
 
-## Run With Docker Compose
+## Quick Start
 
 Requirements:
 
 - Docker
 - Docker Compose
 
-Create your environment file:
-
 ```sh
 cp .env.example .env
-```
-
-Edit `.env` before starting the app:
-
-```sh
-PORT=3000
-PUBLIC_BASE_URL=http://localhost
-DATA_DIR=/data
-NODE_ENV=development
-```
-
-`PUBLIC_BASE_URL` is important. SkillShelf embeds it into every `marketplace.json` as the git source URL, so set it to the base URL that Claude Code can reach. For a local Docker Compose run through the frontend nginx proxy, `http://localhost` is usually right. On a server, use that server's reachable URL.
-
-Start the app:
-
-```sh
 docker compose up --build
 ```
 
-Open the UI:
+Open the app at:
 
 ```text
 http://localhost/
 ```
 
-The backend API is also exposed on:
-
-```text
-http://localhost:3000/
-```
-
-Runtime data is stored in `./data`, including the SQLite database and per-marketplace git repositories.
-
-## Local Development
-
-Backend:
-
-```sh
-cd backend
-python -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-DATA_DIR=../data PUBLIC_BASE_URL=http://localhost:3000 NODE_ENV=development uvicorn app.main:app --reload --host 127.0.0.1 --port 3000
-```
-
-Frontend:
-
-```sh
-cd frontend
-npm install
-npm run dev
-```
-
-Open the Vite dev server:
-
-```text
-http://127.0.0.1:5173/
-```
-
-The dev server proxies `/api/*` and `/m/*` to the backend on port `3000`.
-
-## Verify
-
-Run the required end-to-end verification harness before considering changes done:
-
-```sh
-backend/.venv/bin/python scripts/verify.py
-```
-
-Useful test commands:
-
-```sh
-backend/.venv/bin/python -m pytest backend/tests/unit
-backend/.venv/bin/python -m pytest backend/tests/integration
-cd frontend && npm run build
-```
+Set `PUBLIC_BASE_URL` in `.env` to the URL your AI coding agents can reach. SkillShelf embeds this value in every `marketplace.json`, so production deployments should use the public HTTPS origin.
 
 ## Basic Use
 
-1. Open the UI.
-2. Create a marketplace.
-3. Add a plugin, then attach skills, hooks, agents, MCP servers, commands, monitors, or default settings.
-   The "Add skill shortcut" creates a single-skill plugin for the simple path.
-4. Copy the connect snippet from the marketplace page.
-5. In Claude Code, run the snippet:
+1. Open SkillShelf and go to the admin UI.
+2. Create a marketplace for a team or workflow area.
+3. Create a plugin inside that marketplace.
+4. Add skills, hooks, agents, MCP servers, commands, monitors, or default settings to the plugin.
+5. Copy the Claude Code connect snippet from the marketplace page:
 
 ```text
-/plugin marketplace add http://localhost/m/<marketplace-slug>
+/plugin marketplace add https://your-server.example.com/m/<marketplace-slug>
 ```
 
-Then install a plugin from that marketplace in Claude Code.
+6. Install plugins from that marketplace in Claude Code.
 
-Hooks, MCP servers, and monitors may execute commands on users' machines after installation. SkillShelf requires explicit confirmation in the API/UI for those executable component types, but the deployment should still be limited to trusted internal networks and trusted plugin authors.
+Skill-bearing plugins also include Codex-compatible metadata in the generated git repo. Claude-only components such as hooks, agents, MCP servers, commands, monitors, and settings are rendered for Claude Code and are not represented in Codex metadata.
 
-For Codex-compatible consumers, clone or otherwise consume the marketplace git repo at:
+## Deployment
 
-```text
-http://localhost/m/<marketplace-slug>/git/repo.git
+The default Docker Compose setup stores SQLite metadata and per-marketplace git repos in a named Docker volume mounted at `/var/lib/skillshelf`.
+
+For production, put SkillShelf behind HTTPS and set:
+
+```sh
+PUBLIC_BASE_URL=https://your-server.example.com
+SKILLSHELF_DATA_DIR=/var/lib/skillshelf
+NODE_ENV=production
 ```
 
-The cloned repo includes `.agents/plugins/marketplace.json` and each skill-bearing plugin's `.codex-plugin/plugin.json`. Claude-only components such as hooks, agents, MCP servers, commands, monitors, and settings are rendered for Claude Code and are not represented in Codex metadata.
+See [Deployment](docs/DEPLOYMENT.md) for volume, reverse proxy, and backup notes.
+
+## Security
+
+SkillShelf is currently intended for trusted internal networks and trusted plugin authors. Hooks, MCP servers, and monitors may execute commands on users' machines after installation, so do not expose a v1 deployment as a public marketplace.
+
+## Roadmap
+
+- Auth and RBAC, including OIDC/SAML provider support for systems like Okta.
+- Audit logs and approval workflows for plugin changes.
+- Safer review and signing flows for executable components like hooks, MCP servers, and monitors.
+- Cloud deployment hardening: backups, restore docs, health checks, metrics, and managed storage options.
+- Claude Code client acceptance testing beyond the automated verification harness.
+
+SkillShelf is not a replacement for Claude skills or MCP servers. It is the management and distribution layer that packages those artifacts into Claude/Codex-compatible plugin marketplaces.
+
+## Development
+
+Development setup, test commands, and the verification harness live in [Development](docs/DEVELOPMENT.md).
+
+## License
+
+SkillShelf is licensed under [Apache-2.0](LICENSE), a permissive license with an explicit patent grant.
