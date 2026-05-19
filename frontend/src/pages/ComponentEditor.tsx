@@ -52,7 +52,7 @@ export default function ComponentEditor() {
     slug: string; pluginSlug: string; componentType: string; componentSlug: string;
   }>();
   const navigate = useNavigate();
-  const pluginPath = `/marketplace/${slug}/plugins/${pluginSlug}/edit`;
+  const pluginPath = `/admin/marketplaces/${slug}/plugins/${pluginSlug}/edit`;
 
   const [marketplace, setMarketplace] = useState<{ slug: string; displayName: string } | null>(null);
   const [plugin, setPlugin] = useState<{ slug: string; displayName: string } | null>(null);
@@ -72,8 +72,8 @@ export default function ComponentEditor() {
         fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}`),
         fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${componentType}/${componentSlug}`),
       ]);
-      if (!mktRes.ok) { navigate("/"); return; }
-      if (!plugRes.ok) { navigate(`/marketplace/${slug}`); return; }
+      if (!mktRes.ok) { navigate("/admin"); return; }
+      if (!plugRes.ok) { navigate(`/admin/marketplaces/${slug}`); return; }
       if (!compRes.ok) { navigate(pluginPath); return; }
       const [mkt, plug, comp] = await Promise.all([mktRes.json(), plugRes.json(), compRes.json()]);
       setMarketplace(mkt);
@@ -116,9 +116,9 @@ export default function ComponentEditor() {
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-4 py-4">
-          <Link to="/" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
+          <Link to="/admin" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
           <span className="text-slate-300">/</span>
-          <Link to={`/marketplace/${slug}`} className="text-sm text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
+          <Link to={`/admin/marketplaces/${slug}`} className="text-sm text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
           <span className="text-slate-300">/</span>
           <Link to={pluginPath} className="text-sm text-slate-500 hover:text-slate-900">{plugin.displayName}</Link>
           <span className="text-slate-300">/</span>

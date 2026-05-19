@@ -27,7 +27,7 @@ export default function MarketplacesList() {
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-semibold text-gray-900">SkillForge</h1>
           <button
-            onClick={() => navigate("/new")}
+            onClick={() => navigate("/admin/new")}
             className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
           >
             New marketplace
@@ -42,7 +42,7 @@ export default function MarketplacesList() {
           <div className="text-center py-16">
             <p className="text-gray-500 mb-4">No marketplaces yet.</p>
             <button
-              onClick={() => navigate("/new")}
+              onClick={() => navigate("/admin/new")}
               className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
             >
               Create your first marketplace
@@ -53,7 +53,7 @@ export default function MarketplacesList() {
             {marketplaces.map((m) => (
               <li key={m.slug}>
                 <Link
-                  to={`/marketplace/${m.slug}`}
+                  to={`/admin/marketplaces/${m.slug}`}
                   className="block bg-white rounded-lg border border-gray-200 px-5 py-4 hover:border-indigo-400 transition-colors"
                 >
                   <div className="flex items-center justify-between">
