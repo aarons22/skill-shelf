@@ -2,16 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Modal from "../components/Modal";
 import { Field, TextArea } from "../components/FormHelpers";
+import HookHandlerEditor, { HookHandler, defaultHookHandler, hookHandlerToPayload } from "../components/HookHandlerEditor";
+import McpServerConfigEditor, { McpServerConfig, defaultMcpConfig, mcpConfigToPayload } from "../components/McpServerConfigEditor";
+import AgentConfigEditor, { AgentConfig, agentConfigToPayload } from "../components/AgentConfigEditor";
+import PluginSettingsEditor from "../components/PluginSettingsEditor";
 
 type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "monitors";
 
 interface Marketplace { slug: string; displayName: string }
 interface Plugin { slug: string; displayName: string; description: string; version: string }
 interface Item { slug: string; displayName: string; description?: string }
-
-const defaultAgentConfig = '{\n  "model": "sonnet",\n  "maxTurns": 10\n}';
-const defaultMcpConfig = '{\n  "type": "http",\n  "url": "https://example.com/mcp"\n}';
-const defaultSettings = '{\n  "agent": "reviewer"\n}';
 
 const MODAL_TITLES: Record<ComponentType, string> = {
   skills: "skill", hooks: "hook", agents: "agent",
@@ -43,7 +43,7 @@ export default function PluginEditor() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [items, setItems] = useState<Record<string, Item[]>>({});
-  const [settingsText, setSettingsText] = useState(defaultSettings);
+  const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [openModal, setOpenModal] = useState<ComponentType | null>(null);
 
   useEffect(() => {
@@ -80,10 +80,10 @@ export default function PluginEditor() {
       next[paths[i]] = results[i].ok ? await results[i].json() : [];
     }
     setItems(next);
-    const settings = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/settings`);
-    if (settings.ok) {
-      const data = await settings.json();
-      setSettingsText(JSON.stringify(data.settings ?? {}, null, 2));
+    const settingsRes = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/settings`);
+    if (settingsRes.ok) {
+      const data = await settingsRes.json();
+      setSettings(data.settings ?? {});
     }
   }
 
@@ -115,7 +115,7 @@ export default function PluginEditor() {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      setError("Could not save that component. Check required fields and JSON.");
+      setError("Could not save that component. Check required fields.");
       return false;
     }
     setOpenModal(null);
@@ -185,12 +185,11 @@ export default function PluginEditor() {
               <div className="mb-4 flex items-center gap-2">
                 <h2 className="text-sm font-semibold text-slate-900">Default settings</h2>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextArea label="settings.json" value={settingsText} onChange={setSettingsText} rows={6} />
-              </div>
-              <button type="button" onClick={() => saveSettings(slug!, pluginSlug, settingsText, setError)} className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              <PluginSettingsEditor value={settings} onChange={setSettings} />
+              <button type="button" onClick={() => saveSettings(slug!, pluginSlug, settings, setError)} className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
                 Save settings
               </button>
+              {error && !openModal && <span className="mt-2 block text-sm text-red-600">{error}</span>}
             </section>
 
             {openModal && (
@@ -210,16 +209,14 @@ export default function PluginEditor() {
   );
 }
 
-async function saveSettings(slug: string, pluginSlug: string, value: string, setError: (v: string) => void) {
+async function saveSettings(slug: string, pluginSlug: string, value: Record<string, unknown>, setError: (v: string) => void) {
   setError("");
-  let parsed: unknown;
-  try { parsed = JSON.parse(value || "{}"); } catch { setError("Invalid JSON in settings."); return; }
   const res = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ settings: parsed }),
+    body: JSON.stringify({ settings: value }),
   });
-  if (!res.ok) setError("Could not save settings JSON.");
+  if (!res.ok) setError("Could not save settings.");
 }
 
 function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, pluginSlug }: {
@@ -272,11 +269,11 @@ function AddComponentModal({ type, onSave, onClose, error }: {
   error: string;
 }) {
   switch (type) {
-    case "skills":    return <AddSkillForm onSave={onSave} onClose={onClose} error={error} />;
-    case "hooks":     return <AddHookForm onSave={onSave} onClose={onClose} error={error} />;
-    case "agents":    return <AddAgentForm onSave={onSave} onClose={onClose} error={error} />;
+    case "skills":      return <AddSkillForm onSave={onSave} onClose={onClose} error={error} />;
+    case "hooks":       return <AddHookForm onSave={onSave} onClose={onClose} error={error} />;
+    case "agents":      return <AddAgentForm onSave={onSave} onClose={onClose} error={error} />;
     case "mcp-servers": return <AddMcpForm onSave={onSave} onClose={onClose} error={error} />;
-    case "monitors":  return <AddMonitorForm onSave={onSave} onClose={onClose} error={error} />;
+    case "monitors":    return <AddMonitorForm onSave={onSave} onClose={onClose} error={error} />;
   }
 }
 
@@ -307,20 +304,17 @@ function AddSkillForm({ onSave, onClose, error }: FormProps) {
 }
 
 function AddHookForm({ onSave, onClose, error }: FormProps) {
-  const defaultHandler = '{\n  "type": "command",\n  "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh",\n  "args": [],\n  "timeout": 30\n}';
-  const [f, setF] = useState({ displayName: "", event: "PostToolUse", matcher: "Write|Edit", handler: defaultHandler });
+  const [f, setF] = useState({ displayName: "", event: "PostToolUse", matcher: "Write|Edit", handler: defaultHookHandler() as HookHandler });
   return (
     <form onSubmit={async (e) => {
       e.preventDefault();
-      let handler: object;
-      try { handler = JSON.parse(f.handler || "{}"); } catch { return; }
-      await onSave({ displayName: f.displayName, event: f.event, matcher: f.matcher, handler, unsafeConfirmed: true });
+      await onSave({ displayName: f.displayName, event: f.event, matcher: f.matcher, handler: hookHandlerToPayload(f.handler), unsafeConfirmed: true });
     }}>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
         <Field label="Event" value={f.event} onChange={(v) => setF((c) => ({ ...c, event: v }))} required />
         <Field label="Matcher (regex)" value={f.matcher} onChange={(v) => setF((c) => ({ ...c, matcher: v }))} />
-        <TextArea label="Handler JSON" value={f.handler} onChange={(v) => setF((c) => ({ ...c, handler: v }))} rows={7} />
+        <HookHandlerEditor value={f.handler} onChange={(v) => setF((c) => ({ ...c, handler: v }))} />
       </div>
       <ModalActions onClose={onClose} error={error} label="Add hook" />
     </form>
@@ -328,18 +322,16 @@ function AddHookForm({ onSave, onClose, error }: FormProps) {
 }
 
 function AddAgentForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", description: "", prompt: "", config: defaultAgentConfig });
+  const [f, setF] = useState({ displayName: "", description: "", prompt: "", config: {} as AgentConfig });
   return (
     <form onSubmit={async (e) => {
       e.preventDefault();
-      let config: object;
-      try { config = JSON.parse(f.config || "{}"); } catch { return; }
-      await onSave({ displayName: f.displayName, description: f.description, prompt: f.prompt, config });
+      await onSave({ displayName: f.displayName, description: f.description, prompt: f.prompt, config: agentConfigToPayload(f.config) });
     }}>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
         <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
-        <TextArea label="Config JSON" value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} rows={5} />
+        <AgentConfigEditor value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} />
         <TextArea label="Prompt" value={f.prompt} onChange={(v) => setF((c) => ({ ...c, prompt: v }))} rows={8} />
       </div>
       <ModalActions onClose={onClose} error={error} label="Add agent" />
@@ -348,17 +340,15 @@ function AddAgentForm({ onSave, onClose, error }: FormProps) {
 }
 
 function AddMcpForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", config: defaultMcpConfig });
+  const [f, setF] = useState({ displayName: "", config: defaultMcpConfig() as McpServerConfig });
   return (
     <form onSubmit={async (e) => {
       e.preventDefault();
-      let config: object;
-      try { config = JSON.parse(f.config || "{}"); } catch { return; }
-      await onSave({ displayName: f.displayName, config, unsafeConfirmed: true });
+      await onSave({ displayName: f.displayName, config: mcpConfigToPayload(f.config), unsafeConfirmed: true });
     }}>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
-        <TextArea label="Config JSON" value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} rows={7} />
+        <McpServerConfigEditor value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} />
       </div>
       <ModalActions onClose={onClose} error={error} label="Add MCP server" />
     </form>
@@ -382,3 +372,4 @@ function AddMonitorForm({ onSave, onClose, error }: FormProps) {
     </form>
   );
 }
+

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Field, TextArea } from "../components/FormHelpers";
+import HookHandlerEditor, { HookHandler, hookHandlerFromRaw, hookHandlerToPayload } from "../components/HookHandlerEditor";
+import McpServerConfigEditor, { McpServerConfig, mcpConfigFromRaw, mcpConfigToPayload } from "../components/McpServerConfigEditor";
+import AgentConfigEditor, { AgentConfig, agentConfigFromRaw, agentConfigToPayload } from "../components/AgentConfigEditor";
 
 type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "monitors";
 
@@ -12,9 +15,9 @@ const SECTION_LABELS: Record<ComponentType, string> = {
 
 type FormState =
   | { type: "skills"; displayName: string; description: string; content: string }
-  | { type: "hooks"; displayName: string; event: string; matcher: string; handler: string }
-  | { type: "agents"; displayName: string; description: string; prompt: string; config: string }
-  | { type: "mcp-servers"; displayName: string; config: string }
+  | { type: "hooks"; displayName: string; event: string; matcher: string; handler: HookHandler }
+  | { type: "agents"; displayName: string; description: string; prompt: string; config: AgentConfig }
+  | { type: "mcp-servers"; displayName: string; config: McpServerConfig }
   | { type: "monitors"; displayName: string; command: string; description: string; when: string };
 
 function mapToFormState(type: ComponentType, raw: Record<string, unknown>): FormState {
@@ -22,11 +25,11 @@ function mapToFormState(type: ComponentType, raw: Record<string, unknown>): Form
     case "skills":
       return { type, displayName: String(raw.displayName ?? ""), description: String(raw.description ?? ""), content: String(raw.content ?? "") };
     case "hooks":
-      return { type, displayName: String(raw.displayName ?? ""), event: String(raw.event ?? ""), matcher: String(raw.matcher ?? ""), handler: JSON.stringify(raw.handler ?? {}, null, 2) };
+      return { type, displayName: String(raw.displayName ?? ""), event: String(raw.event ?? ""), matcher: String(raw.matcher ?? ""), handler: hookHandlerFromRaw((raw.handler ?? {}) as Record<string, unknown>) };
     case "agents":
-      return { type, displayName: String(raw.displayName ?? ""), description: String(raw.description ?? ""), prompt: String(raw.prompt ?? ""), config: JSON.stringify(raw.config ?? {}, null, 2) };
+      return { type, displayName: String(raw.displayName ?? ""), description: String(raw.description ?? ""), prompt: String(raw.prompt ?? ""), config: agentConfigFromRaw((raw.config ?? {}) as Record<string, unknown>) };
     case "mcp-servers":
-      return { type, displayName: String(raw.displayName ?? ""), config: JSON.stringify(raw.config ?? {}, null, 2) };
+      return { type, displayName: String(raw.displayName ?? ""), config: mcpConfigFromRaw((raw.config ?? {}) as Record<string, unknown>) };
     case "monitors":
       return { type, displayName: String(raw.displayName ?? ""), command: String(raw.command ?? ""), description: String(raw.description ?? ""), when: String(raw.when ?? "") };
   }
@@ -37,11 +40,11 @@ function buildPayload(state: FormState): object {
     case "skills":
       return { displayName: state.displayName, description: state.description, content: state.content };
     case "hooks":
-      return { displayName: state.displayName, event: state.event, matcher: state.matcher, handler: JSON.parse(state.handler || "{}"), unsafeConfirmed: true };
+      return { displayName: state.displayName, event: state.event, matcher: state.matcher, handler: hookHandlerToPayload(state.handler), unsafeConfirmed: true };
     case "agents":
-      return { displayName: state.displayName, description: state.description, prompt: state.prompt, config: JSON.parse(state.config || "{}") };
+      return { displayName: state.displayName, description: state.description, prompt: state.prompt, config: agentConfigToPayload(state.config) };
     case "mcp-servers":
-      return { displayName: state.displayName, config: JSON.parse(state.config || "{}"), unsafeConfirmed: true };
+      return { displayName: state.displayName, config: mcpConfigToPayload(state.config), unsafeConfirmed: true };
     case "monitors":
       return { displayName: state.displayName, command: state.command, description: state.description, ...(state.when ? { when: state.when } : {}), unsafeConfirmed: true };
   }
@@ -89,21 +92,14 @@ export default function ComponentEditor() {
     if (!formState) return;
     setSaving(true);
     setError("");
-    let payload: object;
-    try {
-      payload = buildPayload(formState);
-    } catch {
-      setError("Invalid JSON in one of the fields.");
-      setSaving(false);
-      return;
-    }
+    const payload = buildPayload(formState);
     const res = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${componentType}/${componentSlug}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     setSaving(false);
-    if (!res.ok) { setError("Failed to save. Check required fields and JSON."); return; }
+    if (!res.ok) { setError("Failed to save. Check required fields."); return; }
     navigate(pluginPath);
   }, [formState, slug, pluginSlug, componentType, componentSlug, navigate, pluginPath]);
 
@@ -148,7 +144,7 @@ export default function ComponentEditor() {
 }
 
 function renderFields(state: FormState, setState: (updater: (prev: FormState) => FormState) => void) {
-  const set = (key: string, value: string) =>
+  const set = (key: string, value: unknown) =>
     setState((prev) => ({ ...prev, [key]: value }) as FormState);
 
   switch (state.type) {
@@ -166,7 +162,7 @@ function renderFields(state: FormState, setState: (updater: (prev: FormState) =>
           <Field label="Name" value={state.displayName} onChange={(v) => set("displayName", v)} required />
           <Field label="Event" value={state.event} onChange={(v) => set("event", v)} required />
           <Field label="Matcher" value={state.matcher} onChange={(v) => set("matcher", v)} />
-          <TextArea label="Handler JSON" value={state.handler} onChange={(v) => set("handler", v)} rows={8} />
+          <HookHandlerEditor value={state.handler} onChange={(v) => set("handler", v)} />
         </>
       );
     case "agents":
@@ -174,7 +170,7 @@ function renderFields(state: FormState, setState: (updater: (prev: FormState) =>
         <>
           <Field label="Name" value={state.displayName} onChange={(v) => set("displayName", v)} required />
           <Field label="Description" value={state.description} onChange={(v) => set("description", v)} required />
-          <TextArea label="Config JSON" value={state.config} onChange={(v) => set("config", v)} rows={5} />
+          <AgentConfigEditor value={state.config} onChange={(v) => set("config", v)} />
           <TextArea label="Prompt" value={state.prompt} onChange={(v) => set("prompt", v)} rows={10} />
         </>
       );
@@ -182,7 +178,7 @@ function renderFields(state: FormState, setState: (updater: (prev: FormState) =>
       return (
         <>
           <Field label="Name" value={state.displayName} onChange={(v) => set("displayName", v)} required />
-          <TextArea label="Config JSON" value={state.config} onChange={(v) => set("config", v)} rows={8} />
+          <McpServerConfigEditor value={state.config} onChange={(v) => set("config", v)} />
         </>
       );
     case "monitors":
