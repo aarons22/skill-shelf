@@ -1,11 +1,12 @@
 # SkillForge
 
-SkillForge is a self-hostable web app for creating and managing skill-backed plugin marketplaces through a UI. Users create a marketplace, add skills, and copy a Claude Code `/plugin marketplace add ...` snippet without touching git.
+SkillForge is a self-hostable web app for creating and managing Claude Code plugin marketplaces through a UI. Users create a marketplace, add installable plugins, attach guided components, and copy a Claude Code `/plugin marketplace add ...` snippet without touching git.
 
-Each generated marketplace repo contains both Claude and Codex plugin metadata:
+Each generated marketplace repo contains Claude plugin metadata and Codex metadata for plugins that include skills:
 
 - Claude: `.claude-plugin/marketplace.json` and per-plugin `.claude-plugin/plugin.json`
-- Codex: `.agents/plugins/marketplace.json` and per-plugin `.codex-plugin/plugin.json`
+- Claude plugin components: `skills/`, `hooks/hooks.json`, `agents/*.md`, `.mcp.json`, `commands/*.md`, `monitors/monitors.json`, and `settings.json`
+- Codex: `.agents/plugins/marketplace.json` and per-plugin `.codex-plugin/plugin.json` for skill-bearing plugins
 
 ## Run With Docker Compose
 
@@ -99,7 +100,8 @@ cd frontend && npm run build
 
 1. Open the UI.
 2. Create a marketplace.
-3. Add a skill with a name, description, and instructions.
+3. Add a plugin, then attach skills, hooks, agents, MCP servers, commands, monitors, or default settings.
+   The "Add skill shortcut" creates a single-skill plugin for the simple path.
 4. Copy the connect snippet from the marketplace page.
 5. In Claude Code, run the snippet:
 
@@ -107,7 +109,9 @@ cd frontend && npm run build
 /plugin marketplace add http://localhost/m/<marketplace-slug>
 ```
 
-Then install the skill from that marketplace in Claude Code.
+Then install a plugin from that marketplace in Claude Code.
+
+Hooks, MCP servers, and monitors may execute commands on users' machines after installation. SkillForge requires explicit confirmation in the API/UI for those executable component types, but the deployment should still be limited to trusted internal networks and trusted plugin authors.
 
 For Codex-compatible consumers, clone or otherwise consume the marketplace git repo at:
 
@@ -115,4 +119,4 @@ For Codex-compatible consumers, clone or otherwise consume the marketplace git r
 http://localhost/m/<marketplace-slug>/git/repo.git
 ```
 
-The cloned repo includes `.agents/plugins/marketplace.json` and each plugin's `.codex-plugin/plugin.json`.
+The cloned repo includes `.agents/plugins/marketplace.json` and each skill-bearing plugin's `.codex-plugin/plugin.json`. Claude-only components such as hooks, agents, MCP servers, commands, monitors, and settings are rendered for Claude Code and are not represented in Codex metadata.

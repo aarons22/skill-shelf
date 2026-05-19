@@ -6,26 +6,26 @@ This is the living reference for every coding agent working on this repo. When t
 
 ## What the product is
 
-**SkillForge** is a self-hostable web app that lets non-technical users create and manage skill-backed plugin marketplaces for Claude Code and Codex through a UI. Each marketplace is a named, addressable endpoint a user adds to their AI coding agent. Inside each marketplace, the user uploads "skills" (prose instructions that customize agent behavior).
+**SkillForge** is a self-hostable web app that lets non-technical users create and manage plugin marketplaces for Claude Code and Codex through a UI. Each marketplace is a named, addressable endpoint a user adds to their AI coding agent. Inside each marketplace, the user creates installable plugins with guided components: skills, hooks, agents, MCP servers, commands, monitors, and default settings.
 
 The user's experience:
 1. `docker compose up` on a server they own.
 2. Open the web UI. Create a marketplace — give it a name. The UI shows the URL to add to Claude Code.
-3. Add skills through a form (name, description, content).
+3. Add plugins and guided components through forms. The "Add skill" shortcut creates a single-skill plugin.
 4. From Claude Code: `/plugin marketplace add https://their-server/m/<slug>`.
-5. Skills appear in Claude Code and can be installed. The same git repo also contains Codex plugin manifests for Codex-compatible consumers.
+5. Plugins appear in Claude Code and can be installed. The same git repo also contains Codex plugin manifests for skill-bearing plugins.
 
 The user **never** sees, types, or learns git, even though git is the storage engine.
 
 ### Who this is for
 
-Internal teams sharing **proprietary** business-process skills. Single-tenant, behind a company's network or VPN. We are not building a public marketplace.
+Internal teams sharing **proprietary** business-process plugins. Single-tenant, behind a company's network or VPN. We are not building a public marketplace.
 
 ### Non-goals for v1
 
 - Authentication or user accounts
 - LLM-assisted skill authoring
-- MCP server / hook / agent / command authoring (skills only)
+- LSP server, theme, channel, dependency, or userConfig authoring
 - Anthropic Cowork ZIP export
 - Permissions, approval workflows, audit logs
 
@@ -44,9 +44,10 @@ Each marketplace has:
 - Its own git repo on disk
 - Its own `marketplace.json` endpoint at `/m/<slug>` and `/m/<slug>/marketplace.json`
 - Its own git smart-HTTP endpoint at `/m/<slug>/git/repo.git`
-- A collection of skills, each rendered as a single-skill plugin inside the repo with both Claude and Codex manifests
+- A collection of plugins, each rendered as an installable plugin directory inside the repo
+- Skill-bearing plugins also get Codex manifests; hooks, agents, MCP servers, commands, monitors, and settings are Claude-only in the current implementation
 
-A skill belongs to exactly one marketplace. Cross-marketplace sharing is post-v1.
+A plugin belongs to exactly one marketplace. A skill belongs to exactly one plugin. Cross-marketplace sharing is post-v1.
 
 ### Canonical user flow
 
@@ -56,14 +57,14 @@ User opens app
        └─ User creates "Finance Team Skills"
             └─ Lands on marketplace page
                  ├─ Shows the "Connect" snippet with the actual URL to copy
-                 ├─ Empty skills list with "Add skill" button
+                 ├─ Empty plugin list with "Add plugin" and "Add skill shortcut" buttons
                  └─ Settings tab (rename, owner info, delete)
-                      └─ User clicks "Add skill"
-                           └─ Fills form, saves, returns to marketplace page
-                                └─ Skill appears in list
+                      └─ User creates a plugin
+                           └─ Adds skills, hooks, agents, MCP servers, commands, monitors, or settings
+                                └─ Plugin appears in list
 ```
 
-Top-level navigation always shows the list of marketplaces. Skill management always happens inside a specific marketplace context.
+Top-level navigation always shows the list of marketplaces. Plugin and component management always happens inside a specific marketplace context.
 
 ---
 
@@ -106,13 +107,13 @@ skillforge/
 │   │   ├── schemas.py          # Pydantic request/response models
 │   │   ├── routes/
 │   │   │   ├── api_marketplaces.py
-│   │   │   ├── api_skills.py
+│   │   │   ├── api_plugins.py
+│   │   │   ├── api_skills.py       # Legacy single-skill plugin shortcut
 │   │   │   ├── marketplace_public.py   # /m/{slug} endpoints
 │   │   │   └── git_smart_http.py       # /m/{slug}/git/repo.git/*
 │   │   └── lib/
 │   │       ├── git_store.py
 │   │       ├── slug.py
-│   │       ├── skill_validator.py
 │   │       └── marketplace_json.py
 │   └── tests/
 │       ├── unit/
@@ -131,7 +132,8 @@ skillforge/
 │       │   ├── MarketplacesList.tsx
 │       │   ├── MarketplaceDetail.tsx
 │       │   ├── NewMarketplace.tsx
-│       │   └── SkillEditor.tsx
+│       │   ├── PluginEditor.tsx
+│       │   └── SkillEditor.tsx      # Single-skill plugin shortcut
 │       └── components/
 ├── data/                       # Runtime — mounted as volume
 │   ├── marketplaces/
@@ -161,8 +163,21 @@ CREATE TABLE marketplaces (
   updated_at    INTEGER NOT NULL
 );
 
-CREATE TABLE skills (
+CREATE TABLE plugins (
   marketplace_slug  TEXT NOT NULL REFERENCES marketplaces(slug) ON DELETE CASCADE,
+  slug              TEXT NOT NULL,
+  display_name      TEXT NOT NULL,
+  description       TEXT NOT NULL,
+  version           TEXT NOT NULL DEFAULT '1.0.0',
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL,
+  last_commit       TEXT,
+  PRIMARY KEY (marketplace_slug, slug)
+);
+
+CREATE TABLE skills (
+  marketplace_slug  TEXT NOT NULL,
+  plugin_slug       TEXT NOT NULL,
   slug              TEXT NOT NULL,
   display_name      TEXT NOT NULL,
   description       TEXT NOT NULL,
@@ -171,9 +186,18 @@ CREATE TABLE skills (
   created_at        INTEGER NOT NULL,
   updated_at        INTEGER NOT NULL,
   last_commit       TEXT,
-  PRIMARY KEY (marketplace_slug, slug)
+  PRIMARY KEY (marketplace_slug, plugin_slug, slug),
+  FOREIGN KEY (marketplace_slug, plugin_slug) REFERENCES plugins(marketplace_slug, slug) ON DELETE CASCADE
 );
 ```
+
+Component tables hang off `(marketplace_slug, plugin_slug)`:
+- `plugin_hooks`: `event`, `matcher`, `handler_json`
+- `plugin_agents`: `description`, `config_json`, `prompt`
+- `plugin_mcp_servers`: `config_json`
+- `plugin_commands`: `description`, `content`
+- `plugin_monitors`: `command`, `description`, optional `when`
+- `plugin_settings`: one JSON settings document per plugin
 
 ### On-disk layout inside a marketplace's git repo
 
@@ -185,11 +209,21 @@ CREATE TABLE skills (
 │   └── plugins/
 │       └── marketplace.json
 └── plugins/
-    └── <skill-slug>/
+    └── <plugin-slug>/
         ├── .claude-plugin/
         │   └── plugin.json
-        ├── .codex-plugin/
+        ├── .codex-plugin/              # only when plugin has skills
         │   └── plugin.json
+        ├── hooks/
+        │   └── hooks.json
+        ├── agents/
+        │   └── <agent-slug>.md
+        ├── .mcp.json
+        ├── commands/
+        │   └── <command-slug>.md
+        ├── monitors/
+        │   └── monitors.json
+        ├── settings.json
         └── skills/
             └── <skill-slug>/
                 └── SKILL.md
@@ -205,7 +239,7 @@ description: <description>
 <content>
 ```
 
-Each skill is wrapped as a single-skill plugin because the installable unit is the plugin, not the skill. This wrapping is invisible to the user. Claude consumers read `.claude-plugin/*`; Codex consumers read `.agents/plugins/marketplace.json` plus each plugin's `.codex-plugin/plugin.json`.
+Plugins are the installable unit. Claude consumers read `.claude-plugin/*` plus root-level plugin components. Codex consumers read `.agents/plugins/marketplace.json` plus each skill-bearing plugin's `.codex-plugin/plugin.json`; non-skill Claude components are not represented in Codex metadata.
 
 ---
 
@@ -219,13 +253,13 @@ Served at `GET /m/<slug>` and `GET /m/<slug>/marketplace.json` (identical conten
   "owner": { "name": "<owner_name>", "email": "<owner_email>" },
   "plugins": [
     {
-      "name": "<skill-slug>",
+      "name": "<plugin-slug>",
       "description": "<description>",
       "version": "<version>",
       "source": {
         "source": "url",
         "url": "<PUBLIC_BASE_URL>/m/<slug>/git/repo.git",
-        "path": "plugins/<skill-slug>"
+        "path": "plugins/<plugin-slug>"
       }
     }
   ]
@@ -242,8 +276,8 @@ Codex marketplace metadata is committed to `.agents/plugins/marketplace.json` in
   "interface": { "displayName": "<display_name>" },
   "plugins": [
     {
-      "name": "<skill-slug>",
-      "source": { "source": "local", "path": "./plugins/<skill-slug>" },
+      "name": "<plugin-slug>",
+      "source": { "source": "local", "path": "./plugins/<plugin-slug>" },
       "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
       "category": "Productivity"
     }
@@ -251,7 +285,7 @@ Codex marketplace metadata is committed to `.agents/plugins/marketplace.json` in
 }
 ```
 
-Each skill plugin also has `.codex-plugin/plugin.json` with `name`, `version`, `description`, `skills: "./skills/"`, and interface metadata derived from the skill.
+Each skill-bearing plugin also has `.codex-plugin/plugin.json` with `name`, `version`, `description`, `skills: "./skills/"`, and interface metadata derived from the plugin.
 
 ---
 
@@ -264,20 +298,31 @@ All under `/api`, JSON in / JSON out. No auth in v1.
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/api/marketplaces` | List all |
-| `GET` | `/api/marketplaces/{slug}` | One + skill count |
+| `GET` | `/api/marketplaces/{slug}` | One + skill/plugin counts |
 | `POST` | `/api/marketplaces` | Body: `displayName, ownerName, ownerEmail`; server derives slug; 409 on collision |
 | `PUT` | `/api/marketplaces/{slug}` | Partial update; cannot change slug |
-| `DELETE` | `/api/marketplaces/{slug}` | Cascades to skills, removes on-disk repo |
+| `DELETE` | `/api/marketplaces/{slug}` | Cascades to plugins/components, removes on-disk repo |
 
-### Skills (nested)
+### Plugins and components
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/marketplaces/{slug}/skills` | Metadata only |
-| `GET` | `/api/marketplaces/{slug}/skills/{skill_slug}` | Full content |
-| `POST` | `/api/marketplaces/{slug}/skills` | Body: `displayName, description, content`; server derives skillSlug |
-| `PUT` | `/api/marketplaces/{slug}/skills/{skill_slug}` | Partial; bumps patch version |
-| `DELETE` | `/api/marketplaces/{slug}/skills/{skill_slug}` | |
+| `GET` | `/api/marketplaces/{slug}/plugins` | List plugins with component counts |
+| `GET` | `/api/marketplaces/{slug}/plugins/{plugin_slug}` | One plugin with component counts |
+| `POST` | `/api/marketplaces/{slug}/plugins` | Body: `displayName, description`; server derives plugin slug |
+| `PUT` | `/api/marketplaces/{slug}/plugins/{plugin_slug}` | Partial update; bumps patch version |
+| `DELETE` | `/api/marketplaces/{slug}/plugins/{plugin_slug}` | Cascades to components and removes plugin files |
+
+Nested component paths hang off `/api/marketplaces/{slug}/plugins/{plugin_slug}`:
+- `/skills`
+- `/hooks`
+- `/agents`
+- `/mcp-servers`
+- `/commands`
+- `/monitors`
+- `/settings`
+
+The legacy `/api/marketplaces/{slug}/skills` endpoints remain as a single-skill plugin shortcut. They create, update, and delete a plugin whose slug matches the skill slug.
 
 ### Non-`/api` routes
 
@@ -298,8 +343,8 @@ Every mutation follows this shape. No exceptions.
 3. INSERT / UPDATE / DELETE the SQLite row.
 4. Write / remove files in `data/marketplaces/<slug>/working/`.
 5. Regenerate `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json` in the working tree from current DB state — always full rewrite, never patch.
-6. `git_store.commit(...)` — **single dulwich commit** containing the skill files, Claude manifests, Codex manifests, and regenerated marketplace files.
-7. Update `last_commit` on affected skill rows.
+6. `git_store.commit(...)` — **single dulwich commit** containing component files, Claude manifests, Codex manifests, and regenerated marketplace files.
+7. Update `last_commit` on affected plugin rows, and affected skill rows when the mutation touches skills.
 8. `COMMIT` the SQLAlchemy transaction.
 
 On any exception in steps 4–7: SQLAlchemy rolls back; explicitly reset the working tree from the bare repo via dulwich (file-system writes are not covered by the DB transaction rollback).
@@ -324,8 +369,9 @@ Atomicity is non-negotiable. A `git clone` between two commits should never see 
 8. `PUT` an edit to the skill's content. Re-clone. Assert updated content and Codex plugin version.
 9. `DELETE` the skill. Re-fetch `marketplace.json` → skill gone. Re-clone → plugin folder gone.
 10. Create a second marketplace + skill. Assert it has its own `/m/<slug>` and git repo, fully isolated.
-11. `DELETE` the first marketplace. Assert its endpoints return 404 and its on-disk repo is removed. Assert second marketplace is untouched.
-12. Shut down server. Exit 0 on success, non-zero with diff/log on failure.
+11. Create a multi-capability plugin with a skill, hook, agent, MCP server, command, monitor, and settings. Clone and assert every component file is rendered at the plugin root-level paths Claude expects.
+12. `DELETE` the first marketplace. Assert its endpoints return 404 and its on-disk repo is removed. Assert second marketplace is untouched, then shut down server.
+Exit 0 on success, non-zero with diff/log on failure.
 
 ### When the loop breaks
 
