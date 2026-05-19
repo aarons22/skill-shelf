@@ -3,6 +3,7 @@ import MarketplacesList from "./pages/MarketplacesList";
 import NewMarketplace from "./pages/NewMarketplace";
 import MarketplaceDetail from "./pages/MarketplaceDetail";
 import PluginEditor from "./pages/PluginEditor";
+import ComponentEditor from "./pages/ComponentEditor";
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <Route path="/marketplace/:slug" element={<MarketplaceDetail />} />
         <Route path="/marketplace/:slug/plugins/new" element={<PluginEditor />} />
         <Route path="/marketplace/:slug/plugins/:pluginSlug/edit" element={<PluginEditor />} />
+        <Route path="/marketplace/:slug/plugins/:pluginSlug/:componentType/:componentSlug/edit" element={<ComponentEditor />} />
       </Routes>
     </BrowserRouter>
   );
