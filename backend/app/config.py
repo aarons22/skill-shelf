@@ -2,6 +2,7 @@ import logging
 import os
 from functools import lru_cache
 
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -13,9 +14,7 @@ class Settings(BaseSettings):
     data_dir: str = "./data"
     node_env: str = "development"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property
     def marketplaces_dir(self) -> str:
