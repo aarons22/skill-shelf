@@ -1,4 +1,4 @@
-# SkillForge — Agent Reference
+# SkillShelf — Agent Reference
 
 This is the living reference for every coding agent working on this repo. When this file contradicts the original spec, this file wins. Update it in the same commit as any code change that contradicts it.
 
@@ -6,7 +6,7 @@ This is the living reference for every coding agent working on this repo. When t
 
 ## What the product is
 
-**SkillForge** is a self-hostable web app that lets non-technical users create and manage plugin marketplaces for Claude Code and Codex through a UI. Each marketplace is a named, addressable endpoint a user adds to their AI coding agent. Inside each marketplace, the user creates installable plugins with guided components: skills, hooks, agents, MCP servers, commands, monitors, and default settings.
+**SkillShelf** is a self-hostable web app that lets non-technical users create and manage plugin marketplaces for Claude Code and Codex through a UI. Each marketplace is a named, addressable endpoint a user adds to their AI coding agent. Inside each marketplace, the user creates installable plugins with guided components: skills, hooks, agents, MCP servers, commands, monitors, and default settings.
 
 The user's experience:
 1. `docker compose up` on a server they own.
@@ -35,7 +35,7 @@ Internal teams sharing **proprietary** business-process plugins. Single-tenant, 
 
 This is load-bearing.
 
-A **marketplace** is the unit the user creates first and shares with collaborators. It maps 1:1 to what Claude Code calls a "plugin marketplace" — what you `/plugin marketplace add` to. A single SkillForge instance hosts many marketplaces side by side.
+A **marketplace** is the unit the user creates first and shares with collaborators. It maps 1:1 to what Claude Code calls a "plugin marketplace" — what you `/plugin marketplace add` to. A single SkillShelf instance hosts many marketplaces side by side.
 
 Each marketplace has:
 - A slug (URL-safe id, e.g. `finance-team-skills`)
@@ -88,7 +88,7 @@ Deviate from this stack only with a stated concrete reason.
 ## Repo layout
 
 ```
-skillforge/
+skillshelf/
 ├── AGENTS.md                   # This file — always up to date
 ├── CLAUDE.md                   # One line: @AGENTS.md
 ├── README.md

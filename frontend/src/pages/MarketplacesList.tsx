@@ -25,7 +25,7 @@ export default function MarketplacesList() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-900">SkillForge</h1>
+          <h1 className="text-xl font-semibold text-gray-900">SkillShelf</h1>
           <button
             onClick={() => navigate("/admin/new")}
             className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"

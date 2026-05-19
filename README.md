@@ -1,6 +1,6 @@
-# SkillForge
+# SkillShelf
 
-SkillForge is a self-hostable web app for creating and managing Claude Code plugin marketplaces through a UI. Users create a marketplace, add installable plugins, attach guided components, and copy a Claude Code `/plugin marketplace add ...` snippet without touching git.
+SkillShelf is a self-hostable web app for creating and managing Claude Code plugin marketplaces through a UI. Users create a marketplace, add installable plugins, attach guided components, and copy a Claude Code `/plugin marketplace add ...` snippet without touching git.
 
 Each generated marketplace repo contains Claude plugin metadata and Codex metadata for plugins that include skills:
 
@@ -30,7 +30,7 @@ DATA_DIR=/data
 NODE_ENV=development
 ```
 
-`PUBLIC_BASE_URL` is important. SkillForge embeds it into every `marketplace.json` as the git source URL, so set it to the base URL that Claude Code can reach. For a local Docker Compose run through the frontend nginx proxy, `http://localhost` is usually right. On a server, use that server's reachable URL.
+`PUBLIC_BASE_URL` is important. SkillShelf embeds it into every `marketplace.json` as the git source URL, so set it to the base URL that Claude Code can reach. For a local Docker Compose run through the frontend nginx proxy, `http://localhost` is usually right. On a server, use that server's reachable URL.
 
 Start the app:
 
@@ -111,7 +111,7 @@ cd frontend && npm run build
 
 Then install a plugin from that marketplace in Claude Code.
 
-Hooks, MCP servers, and monitors may execute commands on users' machines after installation. SkillForge requires explicit confirmation in the API/UI for those executable component types, but the deployment should still be limited to trusted internal networks and trusted plugin authors.
+Hooks, MCP servers, and monitors may execute commands on users' machines after installation. SkillShelf requires explicit confirmation in the API/UI for those executable component types, but the deployment should still be limited to trusted internal networks and trusted plugin authors.
 
 For Codex-compatible consumers, clone or otherwise consume the marketplace git repo at:
 

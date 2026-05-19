@@ -25,7 +25,7 @@ export default function BrowseMarketplaces() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
           <div>
-            <h1 className="text-lg font-semibold text-slate-950">SkillForge</h1>
+            <h1 className="text-lg font-semibold text-slate-950">SkillShelf</h1>
             <p className="text-xs text-slate-500">Browse and install plugin marketplaces</p>
           </div>
           <Link to="/admin" className="text-sm text-slate-500 hover:text-slate-900">

@@ -1,5 +1,5 @@
 """
-SkillForge self-verification harness (§10).
+SkillShelf self-verification harness (§10).
 
 Starts the server on a random free port, exercises the full product
 end-to-end (HTTP API + real git clone via dulwich), then shuts down.

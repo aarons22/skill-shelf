@@ -16,7 +16,7 @@ from app.models import metadata, marketplaces, plugins, skills
 def conn(monkeypatch):
     """In-memory SQLite connection with schema + a test marketplace."""
     # Override PUBLIC_BASE_URL for deterministic assertions
-    monkeypatch.setenv("PUBLIC_BASE_URL", "https://skillforge.example.com")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://skillshelf.example.com")
     # Reset the settings cache so the env var is picked up
     from app import config as cfg
     cfg.get_settings.cache_clear()
@@ -69,7 +69,7 @@ def test_single_skill(conn):
     assert plugin["description"] == "Guides quarterly reporting"
     assert plugin["version"] == "1.0.0"
     assert plugin["source"]["source"] == "url"
-    assert plugin["source"]["url"] == "https://skillforge.example.com/m/finance-team/git/repo.git"
+    assert plugin["source"]["url"] == "https://skillshelf.example.com/m/finance-team/git/repo.git"
     assert plugin["source"]["path"] == "plugins/quarterly-report"
 
 
