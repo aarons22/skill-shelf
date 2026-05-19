@@ -83,6 +83,7 @@ export default function MarketplaceDetail() {
 
   // The snippet users copy into Claude Code
   const connectSnippet = `/plugin marketplace add ${window.location.origin}/m/${slug}`;
+  const codexRepoUrl = `${window.location.origin}/m/${slug}/git/repo.git`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -96,16 +97,30 @@ export default function MarketplaceDetail() {
 
       <main className="max-w-4xl mx-auto px-4 py-6">
         {/* Connect snippet */}
-        <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 mb-6">
-          <p className="text-xs font-medium text-indigo-700 mb-1">Add to Claude Code</p>
-          <div className="flex items-center gap-2">
-            <code className="text-sm text-indigo-900 font-mono flex-1 break-all">{connectSnippet}</code>
-            <button
-              onClick={() => navigator.clipboard.writeText(connectSnippet)}
-              className="text-xs text-indigo-600 hover:text-indigo-900 whitespace-nowrap"
-            >
-              Copy
-            </button>
+        <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 mb-6 space-y-3">
+          <div>
+            <p className="text-xs font-medium text-indigo-700 mb-1">Add to Claude Code</p>
+            <div className="flex items-center gap-2">
+              <code className="text-sm text-indigo-900 font-mono flex-1 break-all">{connectSnippet}</code>
+              <button
+                onClick={() => navigator.clipboard.writeText(connectSnippet)}
+                className="text-xs text-indigo-600 hover:text-indigo-900 whitespace-nowrap"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+          <div className="border-t border-indigo-200 pt-3">
+            <p className="text-xs font-medium text-indigo-700 mb-1">Codex-compatible git repo</p>
+            <div className="flex items-center gap-2">
+              <code className="text-sm text-indigo-900 font-mono flex-1 break-all">{codexRepoUrl}</code>
+              <button
+                onClick={() => navigator.clipboard.writeText(codexRepoUrl)}
+                className="text-xs text-indigo-600 hover:text-indigo-900 whitespace-nowrap"
+              >
+                Copy
+              </button>
+            </div>
           </div>
         </div>
 

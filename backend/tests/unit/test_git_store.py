@@ -73,7 +73,9 @@ def test_commit_full_skill_layout(tmp_data_dir):
 
     files = {
         ".claude-plugin/marketplace.json": '{"name":"layout-test","plugins":[]}',
+        ".agents/plugins/marketplace.json": '{"name":"layout-test","plugins":[]}',
         f"plugins/{skill_slug}/.claude-plugin/plugin.json": '{"name":"quarterly-report"}',
+        f"plugins/{skill_slug}/.codex-plugin/plugin.json": '{"name":"quarterly-report"}',
         f"plugins/{skill_slug}/skills/{skill_slug}/SKILL.md": (
             "---\nname: quarterly-report\ndescription: test\n---\nDo stuff\n"
         ),
@@ -87,7 +89,9 @@ def test_commit_full_skill_layout(tmp_data_dir):
     with tempfile.TemporaryDirectory() as clone_dir:
         cloned = porcelain.clone(git_store._repo_path(slug), clone_dir, checkout=True)
         assert os.path.exists(os.path.join(clone_dir, ".claude-plugin", "marketplace.json"))
+        assert os.path.exists(os.path.join(clone_dir, ".agents", "plugins", "marketplace.json"))
         assert os.path.exists(os.path.join(clone_dir, "plugins", skill_slug, ".claude-plugin", "plugin.json"))
+        assert os.path.exists(os.path.join(clone_dir, "plugins", skill_slug, ".codex-plugin", "plugin.json"))
         skill_md = os.path.join(clone_dir, "plugins", skill_slug, "skills", skill_slug, "SKILL.md")
         assert os.path.exists(skill_md)
         content = open(skill_md).read()

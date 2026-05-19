@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import create_engine, insert
 from sqlalchemy.engine import Connection
 
-from app.lib.marketplace_json import build_marketplace_json
+from app.lib.marketplace_json import build_codex_marketplace_json, build_marketplace_json
 from app.models import metadata, marketplaces, skills
 
 
@@ -69,6 +69,39 @@ def test_single_skill(conn):
     assert plugin["source"]["source"] == "url"
     assert plugin["source"]["url"] == "https://skillforge.example.com/m/finance-team/git/repo.git"
     assert plugin["source"]["path"] == "plugins/quarterly-report"
+
+
+def test_codex_marketplace_json(conn):
+    now = int(time.time())
+    conn.execute(insert(skills).values(
+        marketplace_slug="finance-team",
+        slug="quarterly-report",
+        display_name="Quarterly Report",
+        description="Guides quarterly reporting",
+        version="1.0.0",
+        content="...",
+        created_at=now,
+        updated_at=now,
+    ))
+    conn.commit()
+
+    result = build_codex_marketplace_json("finance-team", conn)
+    assert result["name"] == "finance-team"
+    assert result["interface"]["displayName"] == "Finance Team"
+    assert len(result["plugins"]) == 1
+    plugin = result["plugins"][0]
+    assert plugin == {
+        "name": "quarterly-report",
+        "source": {
+            "source": "local",
+            "path": "./plugins/quarterly-report",
+        },
+        "policy": {
+            "installation": "AVAILABLE",
+            "authentication": "ON_INSTALL",
+        },
+        "category": "Productivity",
+    }
 
 
 def test_source_path_uses_forward_slashes(conn):

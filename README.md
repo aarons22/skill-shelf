@@ -1,6 +1,11 @@
 # SkillForge
 
-SkillForge is a self-hostable web app for creating and managing Claude Code plugin marketplaces through a UI. Users create a marketplace, add skills, and copy a `/plugin marketplace add ...` snippet without touching git.
+SkillForge is a self-hostable web app for creating and managing skill-backed plugin marketplaces through a UI. Users create a marketplace, add skills, and copy a Claude Code `/plugin marketplace add ...` snippet without touching git.
+
+Each generated marketplace repo contains both Claude and Codex plugin metadata:
+
+- Claude: `.claude-plugin/marketplace.json` and per-plugin `.claude-plugin/plugin.json`
+- Codex: `.agents/plugins/marketplace.json` and per-plugin `.codex-plugin/plugin.json`
 
 ## Run With Docker Compose
 
@@ -103,3 +108,11 @@ cd frontend && npm run build
 ```
 
 Then install the skill from that marketplace in Claude Code.
+
+For Codex-compatible consumers, clone or otherwise consume the marketplace git repo at:
+
+```text
+http://localhost/m/<marketplace-slug>/git/repo.git
+```
+
+The cloned repo includes `.agents/plugins/marketplace.json` and each plugin's `.codex-plugin/plugin.json`.

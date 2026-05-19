@@ -164,10 +164,30 @@ def run_verification() -> None:
             assert mj_content["name"] == "finance-team-skills"
             assert len(mj_content["plugins"]) == 1
 
+            codex_mj_path = os.path.join(clone_dir, ".agents", "plugins", "marketplace.json")
+            assert os.path.exists(codex_mj_path), f"Missing {codex_mj_path}"
+            codex_mj = json.loads(Path(codex_mj_path).read_text())
+            assert codex_mj["name"] == "finance-team-skills"
+            assert codex_mj["interface"]["displayName"] == "Finance Team Skills"
+            assert codex_mj["plugins"][0]["source"] == {
+                "source": "local",
+                "path": "./plugins/quarterly-report-process",
+            }
+            assert codex_mj["plugins"][0]["policy"] == {
+                "installation": "AVAILABLE",
+                "authentication": "ON_INSTALL",
+            }
+
             plugin_dir = os.path.join(clone_dir, "plugins", "quarterly-report-process")
             plugin_json = os.path.join(plugin_dir, ".claude-plugin", "plugin.json")
+            codex_plugin_json = os.path.join(plugin_dir, ".codex-plugin", "plugin.json")
             skill_md = os.path.join(plugin_dir, "skills", "quarterly-report-process", "SKILL.md")
             assert os.path.exists(plugin_json), f"Missing {plugin_json}"
+            assert os.path.exists(codex_plugin_json), f"Missing {codex_plugin_json}"
+            codex_plugin = json.loads(Path(codex_plugin_json).read_text())
+            assert codex_plugin["name"] == "quarterly-report-process"
+            assert codex_plugin["version"] == "1.0.0"
+            assert codex_plugin["skills"] == "./skills/"
             assert os.path.exists(skill_md), f"Missing {skill_md}"
             assert_file_contains(skill_md, "quarterly-report-process")
             assert_file_contains(skill_md, "Guides the quarterly reporting workflow")
@@ -187,6 +207,15 @@ def run_verification() -> None:
             skill_md2 = os.path.join(clone_dir2, "plugins", "quarterly-report-process",
                                      "skills", "quarterly-report-process", "SKILL.md")
             assert_file_contains(skill_md2, "UPDATED: The new quarterly process.")
+            codex_plugin2_path = os.path.join(
+                clone_dir2,
+                "plugins",
+                "quarterly-report-process",
+                ".codex-plugin",
+                "plugin.json",
+            )
+            codex_plugin2 = json.loads(Path(codex_plugin2_path).read_text())
+            assert codex_plugin2["version"] == "1.0.1"
             print("  Updated content in re-clone  ✓")
 
             # ── Step 9: DELETE skill, assert gone from JSON and repo ──────────

@@ -99,7 +99,14 @@ def create_skill(marketplace_slug: str, body: SkillCreate):
                 created_at=now,
                 updated_at=now,
             ))
-            extra = write_path.build_skill_files(marketplace_slug, skill_slug, body.description, body.content)
+            extra = write_path.build_skill_files(
+                marketplace_slug,
+                skill_slug,
+                body.displayName,
+                body.description,
+                "1.0.0",
+                body.content,
+            )
             sha = write_path.sync_and_commit(
                 marketplace_slug, conn,
                 commit_message=f"Add skill: {skill_slug}",
@@ -171,7 +178,9 @@ def update_skill(marketplace_slug: str, skill_slug: str, body: SkillUpdate):
             ).mappings().one()
             extra = write_path.build_skill_files(
                 marketplace_slug, skill_slug,
+                new_skill["display_name"],
                 new_skill["description"],
+                new_skill["version"],
                 new_skill["content"],
             )
             sha = write_path.sync_and_commit(

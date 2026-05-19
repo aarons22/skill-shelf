@@ -6,14 +6,14 @@ This is the living reference for every coding agent working on this repo. When t
 
 ## What the product is
 
-**SkillForge** is a self-hostable web app that lets non-technical users create and manage plugin marketplaces for Claude Code through a UI. Each marketplace is a named, addressable endpoint a user adds to their AI coding agent. Inside each marketplace, the user uploads "skills" (prose instructions that customize agent behavior).
+**SkillForge** is a self-hostable web app that lets non-technical users create and manage skill-backed plugin marketplaces for Claude Code and Codex through a UI. Each marketplace is a named, addressable endpoint a user adds to their AI coding agent. Inside each marketplace, the user uploads "skills" (prose instructions that customize agent behavior).
 
 The user's experience:
 1. `docker compose up` on a server they own.
 2. Open the web UI. Create a marketplace — give it a name. The UI shows the URL to add to Claude Code.
 3. Add skills through a form (name, description, content).
 4. From Claude Code: `/plugin marketplace add https://their-server/m/<slug>`.
-5. Skills appear in the agent and can be installed.
+5. Skills appear in Claude Code and can be installed. The same git repo also contains Codex plugin manifests for Codex-compatible consumers.
 
 The user **never** sees, types, or learns git, even though git is the storage engine.
 
@@ -26,7 +26,6 @@ Internal teams sharing **proprietary** business-process skills. Single-tenant, b
 - Authentication or user accounts
 - LLM-assisted skill authoring
 - MCP server / hook / agent / command authoring (skills only)
-- Codex `.codex-plugin/plugin.json` emission
 - Anthropic Cowork ZIP export
 - Permissions, approval workflows, audit logs
 
@@ -45,7 +44,7 @@ Each marketplace has:
 - Its own git repo on disk
 - Its own `marketplace.json` endpoint at `/m/<slug>` and `/m/<slug>/marketplace.json`
 - Its own git smart-HTTP endpoint at `/m/<slug>/git/repo.git`
-- A collection of skills, each rendered as a single-skill plugin inside the repo
+- A collection of skills, each rendered as a single-skill plugin inside the repo with both Claude and Codex manifests
 
 A skill belongs to exactly one marketplace. Cross-marketplace sharing is post-v1.
 
@@ -182,9 +181,14 @@ CREATE TABLE skills (
 <repo-working-root>/
 ├── .claude-plugin/
 │   └── marketplace.json
+├── .agents/
+│   └── plugins/
+│       └── marketplace.json
 └── plugins/
     └── <skill-slug>/
         ├── .claude-plugin/
+        │   └── plugin.json
+        ├── .codex-plugin/
         │   └── plugin.json
         └── skills/
             └── <skill-slug>/
@@ -201,7 +205,7 @@ description: <description>
 <content>
 ```
 
-Each skill is wrapped as a single-skill plugin because Claude Code's installable unit is the plugin, not the skill. This wrapping is invisible to the user.
+Each skill is wrapped as a single-skill plugin because the installable unit is the plugin, not the skill. This wrapping is invisible to the user. Claude consumers read `.claude-plugin/*`; Codex consumers read `.agents/plugins/marketplace.json` plus each plugin's `.codex-plugin/plugin.json`.
 
 ---
 
@@ -229,6 +233,25 @@ Served at `GET /m/<slug>` and `GET /m/<slug>/marketplace.json` (identical conten
 ```
 
 **Use `source: "url"` + `path`**, not relative paths. Relative paths in a URL-distributed `marketplace.json` silently fail to resolve. This is documented Claude Code behavior.
+
+Codex marketplace metadata is committed to `.agents/plugins/marketplace.json` in the same repo. It uses Codex's repo-local marketplace shape:
+
+```json
+{
+  "name": "<slug>",
+  "interface": { "displayName": "<display_name>" },
+  "plugins": [
+    {
+      "name": "<skill-slug>",
+      "source": { "source": "local", "path": "./plugins/<skill-slug>" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+Each skill plugin also has `.codex-plugin/plugin.json` with `name`, `version`, `description`, `skills: "./skills/"`, and interface metadata derived from the skill.
 
 ---
 
@@ -274,14 +297,14 @@ Every mutation follows this shape. No exceptions.
 2. Open SQLAlchemy `Connection.begin()` transaction.
 3. INSERT / UPDATE / DELETE the SQLite row.
 4. Write / remove files in `data/marketplaces/<slug>/working/`.
-5. Regenerate `.claude-plugin/marketplace.json` in the working tree from current DB state — always full rewrite, never patch.
-6. `git_store.commit(...)` — **single dulwich commit** containing both the skill files and the regenerated `marketplace.json`.
+5. Regenerate `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json` in the working tree from current DB state — always full rewrite, never patch.
+6. `git_store.commit(...)` — **single dulwich commit** containing the skill files, Claude manifests, Codex manifests, and regenerated marketplace files.
 7. Update `last_commit` on affected skill rows.
 8. `COMMIT` the SQLAlchemy transaction.
 
 On any exception in steps 4–7: SQLAlchemy rolls back; explicitly reset the working tree from the bare repo via dulwich (file-system writes are not covered by the DB transaction rollback).
 
-Atomicity is non-negotiable. A `git clone` between two commits should never see a `marketplace.json` that disagrees with the plugin folders.
+Atomicity is non-negotiable. A `git clone` between two commits should never see either marketplace file disagree with the plugin folders.
 
 ---
 
@@ -297,8 +320,8 @@ Atomicity is non-negotiable. A `git clone` between two commits should never see 
 4. `POST /api/marketplaces/finance-team-skills/skills` → create "Quarterly Report Process".
 5. Re-fetch `marketplace.json` → assert skill appears with correct `source.url`, `source.path`, `description`.
 6. `dulwich.porcelain.clone` from `http://localhost:<port>/m/finance-team-skills/git/repo.git` into a temp dir.
-7. Assert cloned repo contains the expected files (§ on-disk layout) with correct content.
-8. `PUT` an edit to the skill's content. Re-clone. Assert updated content.
+7. Assert cloned repo contains the expected Claude and Codex files (§ on-disk layout) with correct content.
+8. `PUT` an edit to the skill's content. Re-clone. Assert updated content and Codex plugin version.
 9. `DELETE` the skill. Re-fetch `marketplace.json` → skill gone. Re-clone → plugin folder gone.
 10. Create a second marketplace + skill. Assert it has its own `/m/<slug>` and git repo, fully isolated.
 11. `DELETE` the first marketplace. Assert its endpoints return 404 and its on-disk repo is removed. Assert second marketplace is untouched.
@@ -326,7 +349,7 @@ All three changes go in the same commit.
 - **`marketplace.json` byte-for-byte conformance.** Claude Code parses this strictly. Use `source: "url"` + `path`, never relative paths.
 - **Slug derivation.** NFKD strip accents, lowercase, collapse non-alphanumerics to single dashes, trim leading/trailing dashes, cap at 64 chars. Test: `"Q4 — Sales Report 📊"` → `q4-sales-report`. On collision, return 409 — **do not auto-suffix**.
 - **`source.path` uses forward slashes on all platforms.** Never `os.path.join` for this field. Use `posixpath.join` or template strings.
-- **Skill files and `marketplace.json` go in the same dulwich commit.** Splitting them produces inconsistent clones.
+- **Skill files plus Claude and Codex marketplace/plugin manifests go in the same dulwich commit.** Splitting them produces inconsistent clones.
 - **No subprocess to git.** Container must not need a git binary. dulwich only.
 - **`PUBLIC_BASE_URL` is the most important config.** If it's wrong, every `source.url` in every `marketplace.json` is unreachable. Log it on startup. Warn if it points at `localhost` outside dev mode.
 - **Working-tree cleanup on failure.** File-system writes are not covered by the SQLAlchemy rollback. Must explicitly reset the working tree from the bare repo when steps 4–7 of the write path fail.
