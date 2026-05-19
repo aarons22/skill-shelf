@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import Modal from "../components/Modal";
 import { Field, TextArea } from "../components/FormHelpers";
 
-type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "commands" | "monitors";
+type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "monitors";
 
 interface Marketplace { slug: string; displayName: string }
 interface Plugin { slug: string; displayName: string; description: string; version: string }
@@ -15,7 +15,7 @@ const defaultSettings = '{\n  "agent": "reviewer"\n}';
 
 const MODAL_TITLES: Record<ComponentType, string> = {
   skills: "skill", hooks: "hook", agents: "agent",
-  "mcp-servers": "MCP server", commands: "command", monitors: "monitor",
+  "mcp-servers": "MCP server", monitors: "monitor",
 };
 
 const DOC_URLS: Record<ComponentType, string> = {
@@ -23,13 +23,12 @@ const DOC_URLS: Record<ComponentType, string> = {
   hooks: "https://docs.anthropic.com/en/docs/claude-code/hooks",
   agents: "https://docs.anthropic.com/en/docs/claude-code/sub-agents",
   "mcp-servers": "https://docs.anthropic.com/en/docs/claude-code/mcp",
-  commands: "https://docs.anthropic.com/en/docs/claude-code/slash-commands",
-  monitors: "https://docs.anthropic.com/en/docs/claude-code/monitoring",
+  monitors: "https://code.claude.com/docs/en/monitoring-usage",
 };
 
 const SECTION_TITLES: Record<ComponentType, string> = {
   skills: "Skills", hooks: "Hooks", agents: "Agents",
-  "mcp-servers": "MCP Servers", commands: "Commands", monitors: "Monitors",
+  "mcp-servers": "MCP Servers", monitors: "Monitors",
 };
 
 export default function PluginEditor() {
@@ -74,7 +73,7 @@ export default function PluginEditor() {
 
   async function loadComponents() {
     if (!slug || !pluginSlug) return;
-    const paths: ComponentType[] = ["skills", "hooks", "agents", "mcp-servers", "commands", "monitors"];
+    const paths: ComponentType[] = ["skills", "hooks", "agents", "mcp-servers", "monitors"];
     const results = await Promise.all(paths.map((path) => fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${path}`)));
     const next: Record<string, Item[]> = {};
     for (let i = 0; i < paths.length; i += 1) {
@@ -168,7 +167,7 @@ export default function PluginEditor() {
               Hooks, MCP servers, and monitors can execute commands on users' machines after installation. Only add components your team trusts.
             </div>
 
-            {(["skills", "hooks", "agents", "mcp-servers", "commands", "monitors"] as ComponentType[]).map((type) => (
+            {(["skills", "hooks", "agents", "mcp-servers", "monitors"] as ComponentType[]).map((type) => (
               <ComponentPanel
                 key={type}
                 title={SECTION_TITLES[type]}
@@ -277,7 +276,6 @@ function AddComponentModal({ type, onSave, onClose, error }: {
     case "hooks":     return <AddHookForm onSave={onSave} onClose={onClose} error={error} />;
     case "agents":    return <AddAgentForm onSave={onSave} onClose={onClose} error={error} />;
     case "mcp-servers": return <AddMcpForm onSave={onSave} onClose={onClose} error={error} />;
-    case "commands":  return <AddCommandForm onSave={onSave} onClose={onClose} error={error} />;
     case "monitors":  return <AddMonitorForm onSave={onSave} onClose={onClose} error={error} />;
   }
 }
@@ -363,20 +361,6 @@ function AddMcpForm({ onSave, onClose, error }: FormProps) {
         <TextArea label="Config JSON" value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} rows={7} />
       </div>
       <ModalActions onClose={onClose} error={error} label="Add MCP server" />
-    </form>
-  );
-}
-
-function AddCommandForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", description: "", content: "" });
-  return (
-    <form onSubmit={async (e) => { e.preventDefault(); await onSave({ displayName: f.displayName, description: f.description, content: f.content }); }}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
-        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
-        <TextArea label="Content" value={f.content} onChange={(v) => setF((c) => ({ ...c, content: v }))} rows={8} />
-      </div>
-      <ModalActions onClose={onClose} error={error} label="Add command" />
     </form>
   );
 }

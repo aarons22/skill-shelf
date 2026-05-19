@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Field, TextArea } from "../components/FormHelpers";
 
-type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "commands" | "monitors";
+type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "monitors";
 
-const VALID_TYPES: ComponentType[] = ["skills", "hooks", "agents", "mcp-servers", "commands", "monitors"];
+const VALID_TYPES: ComponentType[] = ["skills", "hooks", "agents", "mcp-servers", "monitors"];
 const SECTION_LABELS: Record<ComponentType, string> = {
   skills: "Skills", hooks: "Hooks", agents: "Agents",
-  "mcp-servers": "MCP Servers", commands: "Commands", monitors: "Monitors",
+  "mcp-servers": "MCP Servers", monitors: "Monitors",
 };
 
 type FormState =
@@ -15,7 +15,6 @@ type FormState =
   | { type: "hooks"; displayName: string; event: string; matcher: string; handler: string }
   | { type: "agents"; displayName: string; description: string; prompt: string; config: string }
   | { type: "mcp-servers"; displayName: string; config: string }
-  | { type: "commands"; displayName: string; description: string; content: string }
   | { type: "monitors"; displayName: string; command: string; description: string; when: string };
 
 function mapToFormState(type: ComponentType, raw: Record<string, unknown>): FormState {
@@ -28,8 +27,6 @@ function mapToFormState(type: ComponentType, raw: Record<string, unknown>): Form
       return { type, displayName: String(raw.displayName ?? ""), description: String(raw.description ?? ""), prompt: String(raw.prompt ?? ""), config: JSON.stringify(raw.config ?? {}, null, 2) };
     case "mcp-servers":
       return { type, displayName: String(raw.displayName ?? ""), config: JSON.stringify(raw.config ?? {}, null, 2) };
-    case "commands":
-      return { type, displayName: String(raw.displayName ?? ""), description: String(raw.description ?? ""), content: String(raw.content ?? "") };
     case "monitors":
       return { type, displayName: String(raw.displayName ?? ""), command: String(raw.command ?? ""), description: String(raw.description ?? ""), when: String(raw.when ?? "") };
   }
@@ -45,8 +42,6 @@ function buildPayload(state: FormState): object {
       return { displayName: state.displayName, description: state.description, prompt: state.prompt, config: JSON.parse(state.config || "{}") };
     case "mcp-servers":
       return { displayName: state.displayName, config: JSON.parse(state.config || "{}"), unsafeConfirmed: true };
-    case "commands":
-      return { displayName: state.displayName, description: state.description, content: state.content };
     case "monitors":
       return { displayName: state.displayName, command: state.command, description: state.description, ...(state.when ? { when: state.when } : {}), unsafeConfirmed: true };
   }
@@ -188,14 +183,6 @@ function renderFields(state: FormState, setState: (updater: (prev: FormState) =>
         <>
           <Field label="Name" value={state.displayName} onChange={(v) => set("displayName", v)} required />
           <TextArea label="Config JSON" value={state.config} onChange={(v) => set("config", v)} rows={8} />
-        </>
-      );
-    case "commands":
-      return (
-        <>
-          <Field label="Name" value={state.displayName} onChange={(v) => set("displayName", v)} required />
-          <Field label="Description" value={state.description} onChange={(v) => set("description", v)} required />
-          <TextArea label="Content" value={state.content} onChange={(v) => set("content", v)} rows={10} />
         </>
       );
     case "monitors":
