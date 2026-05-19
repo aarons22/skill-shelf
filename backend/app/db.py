@@ -29,7 +29,15 @@ def get_engine() -> Engine:
 
 @contextmanager
 def get_connection() -> Generator:
+    """Read-only connection (autobegin, no explicit commit)."""
     with get_engine().connect() as conn:
+        yield conn
+
+
+@contextmanager
+def get_transaction() -> Generator:
+    """Write connection — auto-commits on success, rolls back on exception."""
+    with get_engine().begin() as conn:
         yield conn
 
 

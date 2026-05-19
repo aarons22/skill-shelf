@@ -134,6 +134,32 @@ def delete_repo(slug: str) -> None:
     mkt_dir = _marketplace_dir(slug)
     if os.path.exists(mkt_dir):
         shutil.rmtree(mkt_dir)
+    invalidate_wsgi_cache(slug)
+
+
+# WSGI app cache — keyed by slug; used by git_smart_http.py
+_wsgi_cache: dict[str, Any] = {}
+
+
+def get_wsgi_app(slug: str) -> Any | None:
+    """Return (or build and cache) the dulwich WSGI app for a marketplace."""
+    if slug not in _wsgi_cache:
+        from a2wsgi import WSGIMiddleware
+        from dulwich.server import DictBackend
+        from dulwich.web import make_wsgi_chain
+
+        repo_p = _repo_path(slug)
+        if not os.path.isdir(repo_p):
+            return None
+        bare_repo = Repo(repo_p)
+        backend = DictBackend({"/": bare_repo})
+        _wsgi_cache[slug] = WSGIMiddleware(make_wsgi_chain(backend))
+    return _wsgi_cache[slug]
+
+
+def invalidate_wsgi_cache(slug: str) -> None:
+    """Evict a slug's WSGI app from the cache (call on delete or after new commits)."""
+    _wsgi_cache.pop(slug, None)
 
 
 def reset_working_tree(slug: str) -> None:
