@@ -11,7 +11,7 @@ This is the living reference for every coding agent working on this repo. When t
 The user's experience:
 1. `docker compose up` on a server they own.
 2. Open the web UI. Create a marketplace — give it a name. The UI shows the URL to add to Claude Code.
-3. Add plugins and guided components through forms. The "Add skill" shortcut creates a single-skill plugin.
+3. Add plugins and guided components through forms. Skills are added inside a plugin.
 4. From Claude Code: `/plugin marketplace add https://their-server/m/<slug>`.
 5. Plugins appear in Claude Code and can be installed. The same git repo also contains Codex plugin manifests for skill-bearing plugins.
 
@@ -57,7 +57,7 @@ User opens app
        └─ User creates "Finance Team Skills"
             └─ Lands on marketplace page
                  ├─ Shows the "Connect" snippet with the actual URL to copy
-                 ├─ Empty plugin list with "Add plugin" and "Add skill shortcut" buttons
+                 ├─ Empty plugin list with an "Add plugin" button
                  └─ Settings tab (rename, owner info, delete)
                       └─ User creates a plugin
                            └─ Adds skills, hooks, agents, MCP servers, commands, monitors, or settings
@@ -101,14 +101,13 @@ skillshelf/
 │   ├── alembic/
 │   ├── app/
 │   │   ├── main.py             # FastAPI entrypoint, uvicorn target
-│   │   ├── config.py           # env loading (PORT, PUBLIC_BASE_URL, DATA_DIR)
+│   │   ├── config.py           # env loading (PORT, PUBLIC_BASE_URL, SKILLSHELF_DATA_DIR)
 │   │   ├── db.py               # SQLAlchemy engine + session factory
 │   │   ├── models.py           # Core Table objects (no ORM classes)
 │   │   ├── schemas.py          # Pydantic request/response models
 │   │   ├── routes/
 │   │   │   ├── api_marketplaces.py
 │   │   │   ├── api_plugins.py
-│   │   │   ├── api_skills.py       # Legacy single-skill plugin shortcut
 │   │   │   ├── marketplace_public.py   # /m/{slug} endpoints
 │   │   │   └── git_smart_http.py       # /m/{slug}/git/repo.git/*
 │   │   └── lib/
@@ -132,15 +131,14 @@ skillshelf/
 │       │   ├── MarketplacesList.tsx
 │       │   ├── MarketplaceDetail.tsx
 │       │   ├── NewMarketplace.tsx
-│       │   ├── PluginEditor.tsx
-│       │   └── SkillEditor.tsx      # Single-skill plugin shortcut
+│       │   └── PluginEditor.tsx
 │       └── components/
-├── data/                       # Runtime — mounted as volume
+├── /var/lib/skillshelf/        # Runtime in container — mounted as a persistent volume
 │   ├── marketplaces/
 │   │   └── <slug>/
 │   │       ├── repo/           # Bare git repo
 │   │       └── working/        # Working tree
-│   └── skillforge.db
+│   └── skillshelf.db
 └── scripts/
     └── verify.py               # The self-verification harness
 ```
@@ -322,7 +320,7 @@ Nested component paths hang off `/api/marketplaces/{slug}/plugins/{plugin_slug}`
 - `/monitors`
 - `/settings`
 
-The legacy `/api/marketplaces/{slug}/skills` endpoints remain as a single-skill plugin shortcut. They create, update, and delete a plugin whose slug matches the skill slug.
+There are no top-level skill shortcut endpoints. Skills are always managed under `/api/marketplaces/{slug}/plugins/{plugin_slug}/skills`.
 
 ### Non-`/api` routes
 
@@ -341,7 +339,7 @@ Every mutation follows this shape. No exceptions.
 1. Validate input (Pydantic + manual checks).
 2. Open SQLAlchemy `Connection.begin()` transaction.
 3. INSERT / UPDATE / DELETE the SQLite row.
-4. Write / remove files in `data/marketplaces/<slug>/working/`.
+4. Write / remove files in `<SKILLSHELF_DATA_DIR>/marketplaces/<slug>/working/`.
 5. Regenerate `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json` in the working tree from current DB state — always full rewrite, never patch.
 6. `git_store.commit(...)` — **single dulwich commit** containing component files, Claude manifests, Codex manifests, and regenerated marketplace files.
 7. Update `last_commit` on affected plugin rows, and affected skill rows when the mutation touches skills.
@@ -359,15 +357,15 @@ Atomicity is non-negotiable. A `git clone` between two commits should never see 
 
 ### What `scripts/verify.py` does (all 12 steps must pass)
 
-1. Start the FastAPI server on a random free port with a temporary `DATA_DIR`.
+1. Start the FastAPI server on a random free port with a temporary `SKILLSHELF_DATA_DIR`.
 2. `POST /api/marketplaces` → create "Finance Team Skills".
 3. `GET /m/finance-team-skills/marketplace.json` → assert valid JSON, empty `plugins`, correct `name`/`owner`.
-4. `POST /api/marketplaces/finance-team-skills/skills` → create "Quarterly Report Process".
+4. `POST /api/marketplaces/finance-team-skills/plugins`, then `POST /api/marketplaces/finance-team-skills/plugins/quarterly-report-process/skills` → create "Quarterly Report Process".
 5. Re-fetch `marketplace.json` → assert skill appears with correct `source.url`, `source.path`, `description`.
 6. `dulwich.porcelain.clone` from `http://localhost:<port>/m/finance-team-skills/git/repo.git` into a temp dir.
 7. Assert cloned repo contains the expected Claude and Codex files (§ on-disk layout) with correct content.
 8. `PUT` an edit to the skill's content. Re-clone. Assert updated content and Codex plugin version.
-9. `DELETE` the skill. Re-fetch `marketplace.json` → skill gone. Re-clone → plugin folder gone.
+9. `DELETE` the plugin. Re-fetch `marketplace.json` → plugin gone. Re-clone → plugin folder gone.
 10. Create a second marketplace + skill. Assert it has its own `/m/<slug>` and git repo, fully isolated.
 11. Create a multi-capability plugin with a skill, hook, agent, MCP server, command, monitor, and settings. Clone and assert every component file is rendered at the plugin root-level paths Claude expects.
 12. `DELETE` the first marketplace. Assert its endpoints return 404 and its on-disk repo is removed. Assert second marketplace is untouched, then shut down server.
@@ -417,7 +415,7 @@ Follow the imperative style already in the repo history: `Add X`, `Extract Y`, `
 ```
 PORT=3000
 PUBLIC_BASE_URL=http://localhost:3000   # CRITICAL — embedded in marketplace.json
-DATA_DIR=./data
+SKILLSHELF_DATA_DIR=/var/lib/skillshelf
 NODE_ENV=development
 ```
 
@@ -432,11 +430,11 @@ The verify harness covers everything except the actual Claude Code client. Befor
 1. `docker compose up`.
 2. Open the UI. Create a marketplace called "Hello Marketplace."
 3. The marketplace detail page shows a `/plugin marketplace add ...` snippet.
-4. Add a skill called "Hello World" with description "A test skill" and content "Say hello to the user when asked."
+4. Create a plugin called "Hello World", then add a skill with description "A test skill" and content "Say hello to the user when asked."
 5. In Claude Code: run the snippet from step 3. Then `/plugin install hello-world@hello-marketplace`.
 6. Start a new Claude Code session. Ask "say hello." The skill activates.
 7. Edit the skill in the UI. Run `/plugin marketplace update` in Claude Code. The new content takes effect.
-8. Delete the skill. Run `/plugin marketplace update`. The skill is gone.
+8. Delete the plugin. Run `/plugin marketplace update`. The plugin is gone.
 9. Delete the marketplace. The endpoints return 404.
 
 If any step fails, the verify harness missed something. Add a test for it.

@@ -74,13 +74,13 @@ def run_verification() -> None:
 
         env = {
             **os.environ,
-            "DATA_DIR": data_dir,
+            "SKILLSHELF_DATA_DIR": data_dir,
             "PUBLIC_BASE_URL": base_url,
             "PORT": str(port),
             "NODE_ENV": "development",
         }
 
-        print(f"[verify] Starting server on port {port} with DATA_DIR={data_dir}")
+        print(f"[verify] Starting server on port {port} with SKILLSHELF_DATA_DIR={data_dir}")
         proc = subprocess.Popen(
             [
                 str(BACKEND_DIR / ".venv" / "bin" / "uvicorn"),

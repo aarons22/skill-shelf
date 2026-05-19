@@ -12,6 +12,7 @@ frontend/dist/
 
 # Runtime data (never commit)
 data/
+.skillshelf-data/
 
 # Env
 .env

@@ -1,16 +1,14 @@
 """Integration tests for the API routes — uses FastAPI's TestClient (no real server)."""
 import os
-import time
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 
 # Point at a temp DB before importing the app
 @pytest.fixture(autouse=True, scope="module")
 def temp_env(tmp_path_factory):
     data_dir = tmp_path_factory.mktemp("data")
-    os.environ["DATA_DIR"] = str(data_dir)
+    os.environ["SKILLSHELF_DATA_DIR"] = str(data_dir)
     os.environ["PUBLIC_BASE_URL"] = "http://testserver"
     os.makedirs(os.path.join(str(data_dir), "marketplaces"), exist_ok=True)
 
@@ -84,7 +82,14 @@ def test_update_marketplace(client):
 # ── Skill CRUD ────────────────────────────────────────────────────────────────
 
 def test_create_skill(client):
-    r = client.post("/api/marketplaces/finance-team/skills", json={
+    r = client.post("/api/marketplaces/finance-team/plugins", json={
+        "displayName": "Quarterly Report",
+        "description": "Guides quarterly reporting",
+    })
+    assert r.status_code == 201
+    assert r.json()["slug"] == "quarterly-report"
+
+    r = client.post("/api/marketplaces/finance-team/plugins/quarterly-report/skills", json={
         "displayName": "Quarterly Report",
         "description": "Guides quarterly reporting",
         "content": "Follow the quarterly reporting process.",
@@ -97,7 +102,7 @@ def test_create_skill(client):
 
 
 def test_list_skills(client):
-    r = client.get("/api/marketplaces/finance-team/skills")
+    r = client.get("/api/marketplaces/finance-team/plugins/quarterly-report/skills")
     assert r.status_code == 200
     assert len(r.json()) == 1
     # List endpoint should not include content
@@ -105,14 +110,14 @@ def test_list_skills(client):
 
 
 def test_get_skill(client):
-    r = client.get("/api/marketplaces/finance-team/skills/quarterly-report")
+    r = client.get("/api/marketplaces/finance-team/plugins/quarterly-report/skills/quarterly-report")
     assert r.status_code == 200
     data = r.json()
     assert data["content"] == "Follow the quarterly reporting process."
 
 
 def test_update_skill_bumps_version(client):
-    r = client.put("/api/marketplaces/finance-team/skills/quarterly-report", json={
+    r = client.put("/api/marketplaces/finance-team/plugins/quarterly-report/skills/quarterly-report", json={
         "content": "Updated content."
     })
     assert r.status_code == 200
@@ -140,16 +145,29 @@ def test_marketplace_json_alias(client):
 
 
 def test_delete_skill(client):
-    r = client.delete("/api/marketplaces/finance-team/skills/quarterly-report")
+    r = client.delete("/api/marketplaces/finance-team/plugins/quarterly-report/skills/quarterly-report")
     assert r.status_code == 204
-    r = client.get("/api/marketplaces/finance-team/skills/quarterly-report")
+    r = client.get("/api/marketplaces/finance-team/plugins/quarterly-report/skills/quarterly-report")
     assert r.status_code == 404
 
 
-def test_marketplace_json_empty_after_skill_delete(client):
+def test_marketplace_json_keeps_plugin_after_skill_delete(client):
+    r = client.get("/m/finance-team")
+    assert r.status_code == 200
+    assert [p["name"] for p in r.json()["plugins"]] == ["quarterly-report"]
+
+
+def test_delete_plugin(client):
+    r = client.delete("/api/marketplaces/finance-team/plugins/quarterly-report")
+    assert r.status_code == 204
     r = client.get("/m/finance-team")
     assert r.status_code == 200
     assert r.json()["plugins"] == []
+
+
+def test_top_level_skill_shortcut_removed(client):
+    r = client.get("/api/marketplaces/finance-team/skills")
+    assert r.status_code == 404
 
 
 def test_delete_marketplace(client):
@@ -165,8 +183,10 @@ def test_marketplace_isolation(client):
     # Create two marketplaces
     client.post("/api/marketplaces", json={"displayName": "Alpha Team", "ownerName": "A", "ownerEmail": "a@a.com"})
     client.post("/api/marketplaces", json={"displayName": "Beta Team", "ownerName": "B", "ownerEmail": "b@b.com"})
-    client.post("/api/marketplaces/alpha-team/skills", json={"displayName": "Skill A", "description": "d", "content": "c"})
-    client.post("/api/marketplaces/beta-team/skills", json={"displayName": "Skill B", "description": "d", "content": "c"})
+    client.post("/api/marketplaces/alpha-team/plugins", json={"displayName": "Skill A", "description": "d"})
+    client.post("/api/marketplaces/beta-team/plugins", json={"displayName": "Skill B", "description": "d"})
+    client.post("/api/marketplaces/alpha-team/plugins/skill-a/skills", json={"displayName": "Skill A", "description": "d", "content": "c"})
+    client.post("/api/marketplaces/beta-team/plugins/skill-b/skills", json={"displayName": "Skill B", "description": "d", "content": "c"})
 
     r_a = client.get("/m/alpha-team")
     r_b = client.get("/m/beta-team")

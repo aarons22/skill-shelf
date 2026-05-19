@@ -2,7 +2,7 @@ import logging
 import os
 from functools import lru_cache
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     port: int = 3000
     public_base_url: str = "http://localhost:3000"
-    data_dir: str = "./data"
+    data_dir: str = Field("/var/lib/skillshelf", validation_alias="SKILLSHELF_DATA_DIR")
     node_env: str = "development"
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> str:
-        return os.path.join(self.data_dir, "skillforge.db")
+        return os.path.join(self.data_dir, "skillshelf.db")
 
     @property
     def db_url(self) -> str:

@@ -2,8 +2,8 @@
 Per-marketplace git operations via dulwich (no git binary required).
 
 Each marketplace has:
-  data/marketplaces/<slug>/repo/     — bare git repo (serves smart-HTTP)
-  data/marketplaces/<slug>/working/  — working tree used to stage + commit
+  <SKILLSHELF_DATA_DIR>/marketplaces/<slug>/repo/     — bare git repo (serves smart-HTTP)
+  <SKILLSHELF_DATA_DIR>/marketplaces/<slug>/working/  — working tree used to stage + commit
 
 The write pattern is always:
   write_files(...) → commit(...) → done

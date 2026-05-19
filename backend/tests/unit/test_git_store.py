@@ -12,9 +12,9 @@ from app.lib import git_store
 
 @pytest.fixture
 def tmp_data_dir(tmp_path, monkeypatch):
-    """Point DATA_DIR at a temp directory."""
+    """Point SKILLSHELF_DATA_DIR at a temp directory."""
     data_dir = str(tmp_path / "data")
-    monkeypatch.setenv("DATA_DIR", data_dir)
+    monkeypatch.setenv("SKILLSHELF_DATA_DIR", data_dir)
     from app import config as cfg
     cfg.get_settings.cache_clear()
     os.makedirs(os.path.join(data_dir, "marketplaces"), exist_ok=True)
