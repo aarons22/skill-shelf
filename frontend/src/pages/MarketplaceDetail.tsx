@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import CopyLine from "../components/CopyLine";
 
 interface Marketplace {
   slug: string;
@@ -44,7 +45,7 @@ export default function MarketplaceDetail() {
       fetch(`/api/marketplaces/${slug}/plugins`),
     ]);
     if (!mktRes.ok) {
-      navigate("/");
+      navigate("/admin");
       return;
     }
     const mkt = await mktRes.json();
@@ -78,7 +79,7 @@ export default function MarketplaceDetail() {
 
   const handleDeleteMarketplace = async () => {
     await fetch(`/api/marketplaces/${slug}`, { method: "DELETE" });
-    navigate("/");
+    navigate("/admin");
   };
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
@@ -91,7 +92,7 @@ export default function MarketplaceDetail() {
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
-          <Link to="/" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
+          <Link to="/admin" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
           <span className="text-slate-300">/</span>
           <h1 className="text-lg font-semibold text-slate-950">{marketplace.displayName}</h1>
         </div>
@@ -120,13 +121,13 @@ export default function MarketplaceDetail() {
         {tab === "plugins" && (
           <div>
             <div className="mb-4 flex justify-end">
-              <Link to={`/marketplace/${slug}/plugins/new`} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              <Link to={`/admin/marketplaces/${slug}/plugins/new`} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
                 Add plugin
               </Link>
             </div>
             {plugins.length === 0 ? (
               <p className="py-12 text-center text-sm text-slate-500">
-                No plugins yet. <Link to={`/marketplace/${slug}/plugins/new`} className="font-medium text-slate-950 hover:underline">Create one</Link>.
+                No plugins yet. <Link to={`/admin/marketplaces/${slug}/plugins/new`} className="font-medium text-slate-950 hover:underline">Create one</Link>.
               </p>
             ) : (
               <ul className="space-y-3">
@@ -142,7 +143,7 @@ export default function MarketplaceDetail() {
                         </p>
                       </div>
                       <div className="flex shrink-0 gap-3">
-                        <Link to={`/marketplace/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
+                        <Link to={`/admin/marketplaces/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
                         <button onClick={() => handleDeletePlugin(plugin.slug)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
                       </div>
                     </div>
@@ -187,17 +188,6 @@ export default function MarketplaceDetail() {
   );
 }
 
-function CopyLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="mb-1 text-xs font-medium text-slate-500">{label}</p>
-      <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 break-all font-mono text-sm text-slate-900">{value}</code>
-        <button onClick={() => navigator.clipboard.writeText(value)} className="whitespace-nowrap text-xs font-medium text-slate-700 hover:text-slate-950">Copy</button>
-      </div>
-    </div>
-  );
-}
 
 function SettingsField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
   const inputId = `settings-${label.toLowerCase().replace(/\s+/g, "-")}`;
