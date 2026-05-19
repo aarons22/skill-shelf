@@ -5,7 +5,7 @@ interface Marketplace {
   slug: string;
   displayName: string;
   ownerName: string;
-  skillCount: number;
+  pluginCount: number;
   createdAt: number;
 }
 
@@ -53,14 +53,14 @@ export default function MarketplacesList() {
             {marketplaces.map((m) => (
               <li key={m.slug}>
                 <Link
-                  to={`/m/${m.slug}`}
+                  to={`/marketplace/${m.slug}`}
                   className="block bg-white rounded-lg border border-gray-200 px-5 py-4 hover:border-indigo-400 transition-colors"
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-gray-900">{m.displayName}</p>
                       <p className="text-sm text-gray-500 mt-0.5">
-                        {m.skillCount} skill{m.skillCount !== 1 ? "s" : ""} · owner: {m.ownerName}
+                        {m.pluginCount} plugin{m.pluginCount !== 1 ? "s" : ""} · owner: {m.ownerName}
                       </p>
                     </div>
                     <span className="text-gray-400 text-sm font-mono">{m.slug}</span>

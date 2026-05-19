@@ -26,7 +26,7 @@ export default function NewMarketplace() {
         return;
       }
       const data = await r.json();
-      navigate(`/m/${data.slug}`);
+      navigate(`/marketplace/${data.slug}`);
     } finally {
       setSaving(false);
     }

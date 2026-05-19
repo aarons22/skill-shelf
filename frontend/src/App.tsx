@@ -2,7 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import MarketplacesList from "./pages/MarketplacesList";
 import NewMarketplace from "./pages/NewMarketplace";
 import MarketplaceDetail from "./pages/MarketplaceDetail";
-import SkillEditor from "./pages/SkillEditor";
+import PluginEditor from "./pages/PluginEditor";
 
 export default function App() {
   return (
@@ -10,9 +10,9 @@ export default function App() {
       <Routes>
         <Route path="/" element={<MarketplacesList />} />
         <Route path="/new" element={<NewMarketplace />} />
-        <Route path="/m/:slug" element={<MarketplaceDetail />} />
-        <Route path="/m/:slug/skills/new" element={<SkillEditor />} />
-        <Route path="/m/:slug/skills/:skillSlug/edit" element={<SkillEditor />} />
+        <Route path="/marketplace/:slug" element={<MarketplaceDetail />} />
+        <Route path="/marketplace/:slug/plugins/new" element={<PluginEditor />} />
+        <Route path="/marketplace/:slug/plugins/:pluginSlug/edit" element={<PluginEditor />} />
       </Routes>
     </BrowserRouter>
   );
