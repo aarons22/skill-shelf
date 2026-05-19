@@ -1,13 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import Modal from "../components/Modal";
+import { Field, TextArea } from "../components/FormHelpers";
+
+type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "commands" | "monitors";
 
 interface Marketplace { slug: string; displayName: string }
 interface Plugin { slug: string; displayName: string; description: string; version: string }
-interface Item { slug: string; displayName: string; description?: string; event?: string; matcher?: string; command?: string }
+interface Item { slug: string; displayName: string; description?: string }
 
 const defaultAgentConfig = '{\n  "model": "sonnet",\n  "maxTurns": 10\n}';
 const defaultMcpConfig = '{\n  "type": "http",\n  "url": "https://example.com/mcp"\n}';
 const defaultSettings = '{\n  "agent": "reviewer"\n}';
+
+const MODAL_TITLES: Record<ComponentType, string> = {
+  skills: "skill", hooks: "hook", agents: "agent",
+  "mcp-servers": "MCP server", commands: "command", monitors: "monitor",
+};
+
+const DOC_URLS: Record<ComponentType, string> = {
+  skills: "https://docs.anthropic.com/en/docs/claude-code/skills",
+  hooks: "https://docs.anthropic.com/en/docs/claude-code/hooks",
+  agents: "https://docs.anthropic.com/en/docs/claude-code/sub-agents",
+  "mcp-servers": "https://docs.anthropic.com/en/docs/claude-code/mcp",
+  commands: "https://docs.anthropic.com/en/docs/claude-code/slash-commands",
+  monitors: "https://docs.anthropic.com/en/docs/claude-code/monitoring",
+};
+
+const SECTION_TITLES: Record<ComponentType, string> = {
+  skills: "Skills", hooks: "Hooks", agents: "Agents",
+  "mcp-servers": "MCP Servers", commands: "Commands", monitors: "Monitors",
+};
 
 export default function PluginEditor() {
   const { slug, pluginSlug } = useParams<{ slug: string; pluginSlug?: string }>();
@@ -22,14 +45,7 @@ export default function PluginEditor() {
   const [error, setError] = useState("");
   const [items, setItems] = useState<Record<string, Item[]>>({});
   const [settingsText, setSettingsText] = useState(defaultSettings);
-  const [component, setComponent] = useState({
-    skillName: "", skillDescription: "", skillContent: "",
-    hookName: "", hookEvent: "PostToolUse", hookMatcher: "Write|Edit", hookCommand: "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh",
-    agentName: "", agentDescription: "", agentPrompt: "", agentConfig: defaultAgentConfig,
-    mcpName: "", mcpConfig: defaultMcpConfig,
-    commandName: "", commandDescription: "", commandContent: "",
-    monitorName: "", monitorCommand: "tail -F ./logs/error.log", monitorDescription: "", monitorWhen: "always",
-  });
+  const [openModal, setOpenModal] = useState<ComponentType | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,19 +54,13 @@ export default function PluginEditor() {
       setLoading(true);
       setError("");
       const marketplaceRes = await fetch(`/api/marketplaces/${slug}`);
-      if (!marketplaceRes.ok) {
-        navigate("/");
-        return;
-      }
+      if (!marketplaceRes.ok) { navigate("/"); return; }
       const marketplaceData = await marketplaceRes.json();
       if (cancelled) return;
       setMarketplace(marketplaceData);
       if (isEditing && pluginSlug) {
         const pluginRes = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}`);
-        if (!pluginRes.ok) {
-          navigate(detailPath);
-          return;
-        }
+        if (!pluginRes.ok) { navigate(detailPath); return; }
         const pluginData = await pluginRes.json();
         setPlugin(pluginData);
         setForm({ displayName: pluginData.displayName, description: pluginData.description });
@@ -64,7 +74,7 @@ export default function PluginEditor() {
 
   async function loadComponents() {
     if (!slug || !pluginSlug) return;
-    const paths = ["skills", "hooks", "agents", "mcp-servers", "commands", "monitors"];
+    const paths: ComponentType[] = ["skills", "hooks", "agents", "mcp-servers", "commands", "monitors"];
     const results = await Promise.all(paths.map((path) => fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${path}`)));
     const next: Record<string, Item[]> = {};
     for (let i = 0; i < paths.length; i += 1) {
@@ -97,8 +107,8 @@ export default function PluginEditor() {
     navigate(`/marketplace/${slug}/plugins/${data.slug}/edit`);
   };
 
-  async function postComponent(path: string, body: object) {
-    if (!slug || !pluginSlug) return;
+  async function postComponent(path: ComponentType, body: object): Promise<boolean> {
+    if (!slug || !pluginSlug) return false;
     setError("");
     const res = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${path}`, {
       method: "POST",
@@ -107,9 +117,11 @@ export default function PluginEditor() {
     });
     if (!res.ok) {
       setError("Could not save that component. Check required fields and JSON.");
-      return;
+      return false;
     }
+    setOpenModal(null);
     await loadComponents();
+    return true;
   }
 
   async function deleteComponent(path: string, itemSlug: string) {
@@ -117,6 +129,11 @@ export default function PluginEditor() {
     await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${path}/${itemSlug}`, { method: "DELETE" });
     await loadComponents();
   }
+
+  const handleCloseModal = useCallback(() => {
+    setOpenModal(null);
+    setError("");
+  }, []);
 
   if (loading) return <div className="min-h-screen bg-slate-50 p-8 text-sm text-slate-500">Loading...</div>;
   if (!marketplace) return null;
@@ -135,68 +152,58 @@ export default function PluginEditor() {
       <main className="mx-auto max-w-5xl space-y-6 px-4 py-8">
         <form onSubmit={savePlugin} className="rounded-lg border border-slate-200 bg-white p-6">
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Plugin name" value={form.displayName} onChange={(value) => setForm((current) => ({ ...current, displayName: value }))} required />
-            <Field label="Description" value={form.description} onChange={(value) => setForm((current) => ({ ...current, description: value }))} required />
+            <Field label="Plugin name" value={form.displayName} onChange={(value) => setForm((c) => ({ ...c, displayName: value }))} required />
+            <Field label="Description" value={form.description} onChange={(value) => setForm((c) => ({ ...c, description: value }))} required />
           </div>
           <div className="mt-4 flex items-center gap-3">
             <button disabled={saving} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">{saving ? "Saving..." : "Save plugin"}</button>
             {plugin && <span className="font-mono text-xs text-slate-400">v{plugin.version} · {plugin.slug}</span>}
-            {error && <span className="text-sm text-red-600">{error}</span>}
+            {error && !openModal && <span className="text-sm text-red-600">{error}</span>}
           </div>
         </form>
 
         {isEditing && pluginSlug && (
           <>
-            <Warning />
-            <ComponentPanel title="Skills" items={items.skills ?? []} onDelete={(item) => deleteComponent("skills", item)}>
-              <Field label="Name" value={component.skillName} onChange={(v) => setComponent((c) => ({ ...c, skillName: v }))} />
-              <Field label="Description" value={component.skillDescription} onChange={(v) => setComponent((c) => ({ ...c, skillDescription: v }))} />
-              <TextArea label="Instructions" value={component.skillContent} onChange={(v) => setComponent((c) => ({ ...c, skillContent: v }))} />
-              <Action onClick={() => postComponent("skills", { displayName: component.skillName, description: component.skillDescription, content: component.skillContent })}>Add skill</Action>
-            </ComponentPanel>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Hooks, MCP servers, and monitors can execute commands on users' machines after installation. Only add components your team trusts.
+            </div>
 
-            <ComponentPanel title="Hooks" items={items.hooks ?? []} onDelete={(item) => deleteComponent("hooks", item)}>
-              <Field label="Name" value={component.hookName} onChange={(v) => setComponent((c) => ({ ...c, hookName: v }))} />
-              <Field label="Event" value={component.hookEvent} onChange={(v) => setComponent((c) => ({ ...c, hookEvent: v }))} />
-              <Field label="Matcher" value={component.hookMatcher} onChange={(v) => setComponent((c) => ({ ...c, hookMatcher: v }))} />
-              <Field label="Command" value={component.hookCommand} onChange={(v) => setComponent((c) => ({ ...c, hookCommand: v }))} />
-              <Action onClick={() => postComponent("hooks", { displayName: component.hookName, event: component.hookEvent, matcher: component.hookMatcher, handler: { type: "command", command: component.hookCommand, args: [], timeout: 30 }, unsafeConfirmed: true })}>Add hook</Action>
-            </ComponentPanel>
-
-            <ComponentPanel title="Agents" items={items.agents ?? []} onDelete={(item) => deleteComponent("agents", item)}>
-              <Field label="Name" value={component.agentName} onChange={(v) => setComponent((c) => ({ ...c, agentName: v }))} />
-              <Field label="Description" value={component.agentDescription} onChange={(v) => setComponent((c) => ({ ...c, agentDescription: v }))} />
-              <TextArea label="Config JSON" value={component.agentConfig} onChange={(v) => setComponent((c) => ({ ...c, agentConfig: v }))} rows={5} />
-              <TextArea label="Prompt" value={component.agentPrompt} onChange={(v) => setComponent((c) => ({ ...c, agentPrompt: v }))} />
-              <Action onClick={() => postComponent("agents", { displayName: component.agentName, description: component.agentDescription, prompt: component.agentPrompt, config: JSON.parse(component.agentConfig || "{}") })}>Add agent</Action>
-            </ComponentPanel>
-
-            <ComponentPanel title="MCP servers" items={items["mcp-servers"] ?? []} onDelete={(item) => deleteComponent("mcp-servers", item)}>
-              <Field label="Name" value={component.mcpName} onChange={(v) => setComponent((c) => ({ ...c, mcpName: v }))} />
-              <TextArea label="Config JSON" value={component.mcpConfig} onChange={(v) => setComponent((c) => ({ ...c, mcpConfig: v }))} rows={6} />
-              <Action onClick={() => postComponent("mcp-servers", { displayName: component.mcpName, config: JSON.parse(component.mcpConfig || "{}"), unsafeConfirmed: true })}>Add MCP server</Action>
-            </ComponentPanel>
-
-            <ComponentPanel title="Commands" items={items.commands ?? []} onDelete={(item) => deleteComponent("commands", item)}>
-              <Field label="Name" value={component.commandName} onChange={(v) => setComponent((c) => ({ ...c, commandName: v }))} />
-              <Field label="Description" value={component.commandDescription} onChange={(v) => setComponent((c) => ({ ...c, commandDescription: v }))} />
-              <TextArea label="Content" value={component.commandContent} onChange={(v) => setComponent((c) => ({ ...c, commandContent: v }))} />
-              <Action onClick={() => postComponent("commands", { displayName: component.commandName, description: component.commandDescription, content: component.commandContent })}>Add command</Action>
-            </ComponentPanel>
-
-            <ComponentPanel title="Monitors" items={items.monitors ?? []} onDelete={(item) => deleteComponent("monitors", item)}>
-              <Field label="Name" value={component.monitorName} onChange={(v) => setComponent((c) => ({ ...c, monitorName: v }))} />
-              <Field label="Command" value={component.monitorCommand} onChange={(v) => setComponent((c) => ({ ...c, monitorCommand: v }))} />
-              <Field label="Description" value={component.monitorDescription} onChange={(v) => setComponent((c) => ({ ...c, monitorDescription: v }))} />
-              <Field label="When" value={component.monitorWhen} onChange={(v) => setComponent((c) => ({ ...c, monitorWhen: v }))} />
-              <Action onClick={() => postComponent("monitors", { displayName: component.monitorName, command: component.monitorCommand, description: component.monitorDescription, when: component.monitorWhen, unsafeConfirmed: true })}>Add monitor</Action>
-            </ComponentPanel>
+            {(["skills", "hooks", "agents", "mcp-servers", "commands", "monitors"] as ComponentType[]).map((type) => (
+              <ComponentPanel
+                key={type}
+                title={SECTION_TITLES[type]}
+                items={items[type] ?? []}
+                path={type}
+                docUrl={DOC_URLS[type]}
+                onAdd={() => setOpenModal(type)}
+                onDelete={(item) => deleteComponent(type, item)}
+                slug={slug!}
+                pluginSlug={pluginSlug}
+              />
+            ))}
 
             <section className="rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="mb-4 text-sm font-semibold text-slate-900">Default settings</h2>
-              <TextArea label="settings.json" value={settingsText} onChange={setSettingsText} rows={6} />
-              <Action onClick={() => postSettings(slug!, pluginSlug, settingsText, setError)}>Save settings</Action>
+              <div className="mb-4 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-slate-900">Default settings</h2>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextArea label="settings.json" value={settingsText} onChange={setSettingsText} rows={6} />
+              </div>
+              <button type="button" onClick={() => saveSettings(slug!, pluginSlug, settingsText, setError)} className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+                Save settings
+              </button>
             </section>
+
+            {openModal && (
+              <Modal title={`Add ${MODAL_TITLES[openModal]}`} onClose={handleCloseModal}>
+                <AddComponentModal
+                  type={openModal}
+                  onSave={(body) => postComponent(openModal, body)}
+                  onClose={handleCloseModal}
+                  error={error}
+                />
+              </Modal>
+            )}
           </>
         )}
       </main>
@@ -204,66 +211,190 @@ export default function PluginEditor() {
   );
 }
 
-async function postSettings(slug: string, pluginSlug: string, value: string, setError: (value: string) => void) {
+async function saveSettings(slug: string, pluginSlug: string, value: string, setError: (v: string) => void) {
   setError("");
+  let parsed: unknown;
+  try { parsed = JSON.parse(value || "{}"); } catch { setError("Invalid JSON in settings."); return; }
   const res = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ settings: JSON.parse(value || "{}") }),
+    body: JSON.stringify({ settings: parsed }),
   });
   if (!res.ok) setError("Could not save settings JSON.");
 }
 
-function Warning() {
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-      Hooks, MCP servers, and monitors can execute commands on users' machines after installation. Only add components your team trusts.
-    </div>
-  );
-}
-
-function ComponentPanel({ title, items, onDelete, children }: { title: string; items: Item[]; onDelete: (slug: string) => void; children: React.ReactNode }) {
+function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, pluginSlug }: {
+  title: string; items: Item[]; path: string; docUrl: string;
+  onAdd: () => void; onDelete: (slug: string) => void;
+  slug: string; pluginSlug: string;
+}) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-6">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-        <span className="text-xs text-slate-400">{items.length}</span>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-500">{items.length}</span>
+          <a href={docUrl} target="_blank" rel="noopener noreferrer" title={`${title} documentation`} className="text-xs text-slate-400 hover:text-slate-700">↗</a>
+        </div>
+        <button type="button" onClick={onAdd} className="rounded-md bg-slate-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800">
+          Add {MODAL_TITLES[path as ComponentType]}
+        </button>
       </div>
       {items.length > 0 && (
-        <ul className="mb-5 divide-y divide-slate-100 rounded-md border border-slate-200">
+        <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
           {items.map((item) => (
             <li key={item.slug} className="flex items-center justify-between gap-3 px-3 py-2">
-              <span className="min-w-0 truncate text-sm text-slate-700">{item.displayName} <span className="font-mono text-xs text-slate-400">({item.slug})</span></span>
-              <button onClick={() => onDelete(item.slug)} className="text-xs font-medium text-red-600 hover:text-red-800">Delete</button>
+              <span className="min-w-0 truncate text-sm text-slate-700">
+                {item.displayName} <span className="font-mono text-xs text-slate-400">({item.slug})</span>
+              </span>
+              <div className="flex shrink-0 items-center gap-3">
+                <Link
+                  to={`/marketplace/${slug}/plugins/${pluginSlug}/${path}/${item.slug}/edit`}
+                  className="text-xs font-medium text-slate-600 hover:text-slate-900"
+                >
+                  Edit
+                </Link>
+                <button type="button" onClick={() => onDelete(item.slug)} className="text-xs font-medium text-red-600 hover:text-red-800">
+                  Delete
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       )}
-      <div className="grid gap-4 md:grid-cols-2">{children}</div>
     </section>
   );
 }
 
-function Action({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onClick} className="h-10 self-end rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800">{children}</button>;
+function AddComponentModal({ type, onSave, onClose, error }: {
+  type: ComponentType;
+  onSave: (body: object) => Promise<boolean>;
+  onClose: () => void;
+  error: string;
+}) {
+  switch (type) {
+    case "skills":    return <AddSkillForm onSave={onSave} onClose={onClose} error={error} />;
+    case "hooks":     return <AddHookForm onSave={onSave} onClose={onClose} error={error} />;
+    case "agents":    return <AddAgentForm onSave={onSave} onClose={onClose} error={error} />;
+    case "mcp-servers": return <AddMcpForm onSave={onSave} onClose={onClose} error={error} />;
+    case "commands":  return <AddCommandForm onSave={onSave} onClose={onClose} error={error} />;
+    case "monitors":  return <AddMonitorForm onSave={onSave} onClose={onClose} error={error} />;
+  }
 }
 
-function Field({ label, value, onChange, required = false }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
-  const id = label.toLowerCase().replace(/\s+/g, "-");
+type FormProps = { onSave: (body: object) => Promise<boolean>; onClose: () => void; error: string };
+
+function ModalActions({ onClose, error, label = "Add" }: { onClose: () => void; error: string; label?: string }) {
   return (
-    <div>
-      <label htmlFor={id} className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
-      <input id={id} required={required} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200" />
+    <div className="mt-5 flex items-center gap-3">
+      <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">{label}</button>
+      <button type="button" onClick={onClose} className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+      {error && <span className="text-sm text-red-600">{error}</span>}
     </div>
   );
 }
 
-function TextArea({ label, value, onChange, rows = 8 }: { label: string; value: string; onChange: (value: string) => void; rows?: number }) {
-  const id = label.toLowerCase().replace(/\s+/g, "-");
+function AddSkillForm({ onSave, onClose, error }: FormProps) {
+  const [f, setF] = useState({ displayName: "", description: "", content: "" });
   return (
-    <div className="md:col-span-2">
-      <label htmlFor={id} className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
-      <textarea id={id} rows={rows} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-slate-200" />
-    </div>
+    <form onSubmit={async (e) => { e.preventDefault(); await onSave({ displayName: f.displayName, description: f.description, content: f.content }); }}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
+        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
+        <TextArea label="Instructions" value={f.content} onChange={(v) => setF((c) => ({ ...c, content: v }))} rows={8} />
+      </div>
+      <ModalActions onClose={onClose} error={error} label="Add skill" />
+    </form>
+  );
+}
+
+function AddHookForm({ onSave, onClose, error }: FormProps) {
+  const defaultHandler = '{\n  "type": "command",\n  "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check.sh",\n  "args": [],\n  "timeout": 30\n}';
+  const [f, setF] = useState({ displayName: "", event: "PostToolUse", matcher: "Write|Edit", handler: defaultHandler });
+  return (
+    <form onSubmit={async (e) => {
+      e.preventDefault();
+      let handler: object;
+      try { handler = JSON.parse(f.handler || "{}"); } catch { return; }
+      await onSave({ displayName: f.displayName, event: f.event, matcher: f.matcher, handler, unsafeConfirmed: true });
+    }}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
+        <Field label="Event" value={f.event} onChange={(v) => setF((c) => ({ ...c, event: v }))} required />
+        <Field label="Matcher (regex)" value={f.matcher} onChange={(v) => setF((c) => ({ ...c, matcher: v }))} />
+        <TextArea label="Handler JSON" value={f.handler} onChange={(v) => setF((c) => ({ ...c, handler: v }))} rows={7} />
+      </div>
+      <ModalActions onClose={onClose} error={error} label="Add hook" />
+    </form>
+  );
+}
+
+function AddAgentForm({ onSave, onClose, error }: FormProps) {
+  const [f, setF] = useState({ displayName: "", description: "", prompt: "", config: defaultAgentConfig });
+  return (
+    <form onSubmit={async (e) => {
+      e.preventDefault();
+      let config: object;
+      try { config = JSON.parse(f.config || "{}"); } catch { return; }
+      await onSave({ displayName: f.displayName, description: f.description, prompt: f.prompt, config });
+    }}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
+        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
+        <TextArea label="Config JSON" value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} rows={5} />
+        <TextArea label="Prompt" value={f.prompt} onChange={(v) => setF((c) => ({ ...c, prompt: v }))} rows={8} />
+      </div>
+      <ModalActions onClose={onClose} error={error} label="Add agent" />
+    </form>
+  );
+}
+
+function AddMcpForm({ onSave, onClose, error }: FormProps) {
+  const [f, setF] = useState({ displayName: "", config: defaultMcpConfig });
+  return (
+    <form onSubmit={async (e) => {
+      e.preventDefault();
+      let config: object;
+      try { config = JSON.parse(f.config || "{}"); } catch { return; }
+      await onSave({ displayName: f.displayName, config, unsafeConfirmed: true });
+    }}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
+        <TextArea label="Config JSON" value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} rows={7} />
+      </div>
+      <ModalActions onClose={onClose} error={error} label="Add MCP server" />
+    </form>
+  );
+}
+
+function AddCommandForm({ onSave, onClose, error }: FormProps) {
+  const [f, setF] = useState({ displayName: "", description: "", content: "" });
+  return (
+    <form onSubmit={async (e) => { e.preventDefault(); await onSave({ displayName: f.displayName, description: f.description, content: f.content }); }}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
+        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
+        <TextArea label="Content" value={f.content} onChange={(v) => setF((c) => ({ ...c, content: v }))} rows={8} />
+      </div>
+      <ModalActions onClose={onClose} error={error} label="Add command" />
+    </form>
+  );
+}
+
+function AddMonitorForm({ onSave, onClose, error }: FormProps) {
+  const [f, setF] = useState({ displayName: "", command: "tail -F ./logs/error.log", description: "", when: "always" });
+  return (
+    <form onSubmit={async (e) => {
+      e.preventDefault();
+      await onSave({ displayName: f.displayName, command: f.command, description: f.description, ...(f.when ? { when: f.when } : {}), unsafeConfirmed: true });
+    }}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
+        <Field label="Shell command" value={f.command} onChange={(v) => setF((c) => ({ ...c, command: v }))} required />
+        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
+        <Field label="When (optional)" value={f.when} onChange={(v) => setF((c) => ({ ...c, when: v }))} />
+      </div>
+      <ModalActions onClose={onClose} error={error} label="Add monitor" />
+    </form>
   );
 }
