@@ -364,10 +364,12 @@ If any step fails, the verify harness missed something. Add a test for it.
 
 ---
 
-## dulwich notes (from the spike)
+## dulwich notes (from the spike — verified working)
 
-> Fill this in after the §14.1 spike (Step 1 of the build). Record:
-> - Which dulwich APIs are used for smart-HTTP serving (`dulwich.web.HTTPGitApplication` or hand-rolled `info/refs` + `git-upload-pack`?)
-> - Any WSGI→ASGI bridging required
-> - Gotchas with bare repo init (`Repo.init_bare` vs `porcelain.init`)
-> - Gotchas with committing to a bare repo through a working tree
+- **Bare repo init**: `Repo.init_bare(path)` requires the target directory to **already exist** (`os.makedirs(path)` first).
+- **Working tree**: same — `os.makedirs(work_path)` before `Repo.init(work_path)`.
+- **Default branch**: dulwich defaults to `master`, not `main`. Use `refs/heads/master` in push refspecs.
+- **Smart-HTTP server**: `DictBackend({"/": bare_repo})` + `make_wsgi_chain(backend)` from `dulwich.web`. The `"/"` key matches any incoming path prefix.
+- **WSGI → ASGI bridge**: `starlette.middleware.wsgi.WSGIMiddleware` is **deprecated** and broken for git's streaming responses (chunked `IncompleteRead` errors). Use **`a2wsgi.WSGIMiddleware`** instead. Add `a2wsgi` to `pyproject.toml` dependencies.
+- **Mounting**: `app.mount("/m/<slug>/git", WSGIMiddleware(dulwich_wsgi))` — a2wsgi correctly bridges the streaming git-pack protocol.
+- **Commit pattern**: init working tree → write files → `porcelain.add` + `porcelain.commit` → `porcelain.push` to bare. The git store (`git_store.py`) uses dulwich's `Repo` object and `index` directly for committing to avoid the double-repo overhead in production (write to working tree, stage, `repo.do_commit`).
