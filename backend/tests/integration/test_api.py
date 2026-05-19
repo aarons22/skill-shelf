@@ -184,3 +184,78 @@ def test_marketplace_isolation(client):
     client.delete("/api/marketplaces/alpha-team")
     assert client.get("/m/alpha-team").status_code == 404
     assert client.get("/m/beta-team").status_code == 200
+
+
+def test_multi_capability_plugin_crud(client):
+    r = client.post("/api/marketplaces", json={
+        "displayName": "Plugin Team",
+        "ownerName": "Plugin Owner",
+        "ownerEmail": "plugins@example.com",
+    })
+    assert r.status_code == 201
+
+    r = client.post("/api/marketplaces/plugin-team/plugins", json={
+        "displayName": "Ops Toolkit",
+        "description": "Operational helpers",
+    })
+    assert r.status_code == 201
+    assert r.json()["slug"] == "ops-toolkit"
+
+    assert client.post("/api/marketplaces/plugin-team/plugins/ops-toolkit/skills", json={
+        "displayName": "Triage",
+        "description": "Triage incidents",
+        "content": "Follow the incident checklist.",
+    }).status_code == 201
+    assert client.post("/api/marketplaces/plugin-team/plugins/ops-toolkit/hooks", json={
+        "displayName": "Format on edit",
+        "event": "PostToolUse",
+        "matcher": "Write|Edit",
+        "handler": {"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format.sh", "timeout": 30},
+        "unsafeConfirmed": True,
+    }).status_code == 201
+    assert client.post("/api/marketplaces/plugin-team/plugins/ops-toolkit/agents", json={
+        "displayName": "Reviewer",
+        "description": "Reviews changes",
+        "prompt": "Review the change.",
+        "config": {"model": "sonnet", "maxTurns": 5},
+    }).status_code == 201
+    assert client.post("/api/marketplaces/plugin-team/plugins/ops-toolkit/mcp-servers", json={
+        "displayName": "Status API",
+        "config": {"type": "http", "url": "https://status.example.com/mcp"},
+        "unsafeConfirmed": True,
+    }).status_code == 201
+    assert client.post("/api/marketplaces/plugin-team/plugins/ops-toolkit/commands", json={
+        "displayName": "Deploy",
+        "description": "Deploy safely",
+        "content": "Deploy with $ARGUMENTS.",
+    }).status_code == 201
+    assert client.post("/api/marketplaces/plugin-team/plugins/ops-toolkit/monitors", json={
+        "displayName": "Error Log",
+        "command": "tail -F ./logs/error.log",
+        "description": "Application error log",
+        "when": "always",
+        "unsafeConfirmed": True,
+    }).status_code == 201
+    assert client.put("/api/marketplaces/plugin-team/plugins/ops-toolkit/settings", json={
+        "settings": {"agent": "reviewer"},
+    }).status_code == 200
+
+    r = client.get("/api/marketplaces/plugin-team/plugins/ops-toolkit")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["skillCount"] == 1
+    assert data["hookCount"] == 1
+    assert data["agentCount"] == 1
+    assert data["mcpServerCount"] == 1
+    assert data["commandCount"] == 1
+    assert data["monitorCount"] == 1
+    assert data["hasSettings"] is True
+
+    r = client.get("/m/plugin-team")
+    assert r.status_code == 200
+    plugin = r.json()["plugins"][0]
+    assert plugin["name"] == "ops-toolkit"
+    assert plugin["source"]["path"] == "plugins/ops-toolkit"
+
+    assert client.delete("/api/marketplaces/plugin-team/plugins/ops-toolkit/hooks/format-on-edit").status_code == 204
+    assert client.get("/api/marketplaces/plugin-team/plugins/ops-toolkit").json()["hookCount"] == 0

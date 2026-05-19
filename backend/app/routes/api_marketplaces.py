@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, insert, select, update
 from app.db import get_connection, get_transaction
 from app.lib import git_store, write_path
 from app.lib.slug import make_slug
-from app.models import marketplaces, skills
+from app.models import marketplaces, plugins, skills
 from app.schemas import MarketplaceCreate, MarketplaceOut, MarketplaceUpdate
 
 router = APIRouter(prefix="/api/marketplaces", tags=["marketplaces"])
@@ -22,6 +22,7 @@ def _row_to_out(row, skill_count: int | None = None) -> dict[str, Any]:
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
         "skillCount": skill_count,
+        "pluginCount": None,
     }
 
 
@@ -31,10 +32,15 @@ def list_marketplaces():
         rows = conn.execute(select(marketplaces).order_by(marketplaces.c.display_name)).mappings().all()
         result = []
         for row in rows:
-            count = conn.execute(
+            skill_count = conn.execute(
                 select(func.count()).where(skills.c.marketplace_slug == row["slug"])
             ).scalar()
-            result.append(_row_to_out(row, count))
+            plugin_count = conn.execute(
+                select(func.count()).where(plugins.c.marketplace_slug == row["slug"])
+            ).scalar()
+            out = _row_to_out(row, skill_count)
+            out["pluginCount"] = plugin_count
+            result.append(out)
         return result
 
 
@@ -46,10 +52,15 @@ def get_marketplace(slug: str):
         ).mappings().one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="Marketplace not found")
-        count = conn.execute(
+        skill_count = conn.execute(
             select(func.count()).where(skills.c.marketplace_slug == slug)
         ).scalar()
-        return _row_to_out(row, count)
+        plugin_count = conn.execute(
+            select(func.count()).where(plugins.c.marketplace_slug == slug)
+        ).scalar()
+        out = _row_to_out(row, skill_count)
+        out["pluginCount"] = plugin_count
+        return out
 
 
 @router.post("", response_model=MarketplaceOut, status_code=201)
@@ -92,7 +103,9 @@ def create_marketplace(body: MarketplaceCreate):
         row = conn.execute(
             select(marketplaces).where(marketplaces.c.slug == slug)
         ).mappings().one()
-        return _row_to_out(row, 0)
+        out = _row_to_out(row, 0)
+        out["pluginCount"] = 0
+        return out
 
 
 @router.put("/{slug}", response_model=MarketplaceOut)
@@ -114,10 +127,15 @@ def update_marketplace(slug: str, body: MarketplaceUpdate):
 
     if not updates:
         with get_connection() as conn:
-            count = conn.execute(
+            skill_count = conn.execute(
                 select(func.count()).where(skills.c.marketplace_slug == slug)
             ).scalar()
-        return _row_to_out(row, count)
+            plugin_count = conn.execute(
+                select(func.count()).where(plugins.c.marketplace_slug == slug)
+            ).scalar()
+        out = _row_to_out(row, skill_count)
+        out["pluginCount"] = plugin_count
+        return out
 
     now = int(time.time())
     updates["updated_at"] = now
@@ -142,10 +160,15 @@ def update_marketplace(slug: str, body: MarketplaceUpdate):
         updated_row = conn.execute(
             select(marketplaces).where(marketplaces.c.slug == slug)
         ).mappings().one()
-        count = conn.execute(
+        skill_count = conn.execute(
             select(func.count()).where(skills.c.marketplace_slug == slug)
         ).scalar()
-    return _row_to_out(updated_row, count)
+        plugin_count = conn.execute(
+            select(func.count()).where(plugins.c.marketplace_slug == slug)
+        ).scalar()
+    out = _row_to_out(updated_row, skill_count)
+    out["pluginCount"] = plugin_count
+    return out
 
 
 @router.delete("/{slug}", status_code=204)

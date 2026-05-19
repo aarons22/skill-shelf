@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import log_startup_config
 from app.db import run_migrations
-from app.routes import api_marketplaces, api_skills, git_smart_http, marketplace_public
+from app.routes import api_marketplaces, api_plugins, git_smart_http, marketplace_public
 
 logging.basicConfig(level=logging.INFO)
 
@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 app.include_router(api_marketplaces.router)
-app.include_router(api_skills.router)
+app.include_router(api_plugins.router)
 app.include_router(marketplace_public.router)
 app.include_router(git_smart_http.router)
 

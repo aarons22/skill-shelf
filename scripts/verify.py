@@ -121,14 +121,20 @@ def run_verification() -> None:
             assert mj["plugins"] == [], f"Expected empty plugins, got {mj['plugins']}"
             print(f"  name={mj['name']}, plugins=[]  ✓")
 
-            # ── Step 4: Create skill "Quarterly Report Process" ───────────────
-            print("[verify] Step 4: POST skill")
-            r = client.post("/api/marketplaces/finance-team-skills/skills", json={
+            # ── Step 4: Create plugin + skill "Quarterly Report Process" ─────
+            print("[verify] Step 4: POST plugin + skill")
+            r = client.post("/api/marketplaces/finance-team-skills/plugins", json={
+                "displayName": "Quarterly Report Process",
+                "description": "Guides the quarterly reporting workflow",
+            })
+            assert r.status_code == 201, f"Step 4 plugin create failed: {r.status_code} {r.text}"
+            assert r.json()["slug"] == "quarterly-report-process"
+            r = client.post("/api/marketplaces/finance-team-skills/plugins/quarterly-report-process/skills", json={
                 "displayName": "Quarterly Report Process",
                 "description": "Guides the quarterly reporting workflow",
                 "content": "Follow these steps for quarterly reporting.",
             })
-            assert r.status_code == 201, f"Step 4 failed: {r.status_code} {r.text}"
+            assert r.status_code == 201, f"Step 4 skill create failed: {r.status_code} {r.text}"
             skill_data = r.json()
             assert skill_data["slug"] == "quarterly-report-process"
             print(f"  skill slug = {skill_data['slug']}")
@@ -186,7 +192,7 @@ def run_verification() -> None:
             assert os.path.exists(codex_plugin_json), f"Missing {codex_plugin_json}"
             codex_plugin = json.loads(Path(codex_plugin_json).read_text())
             assert codex_plugin["name"] == "quarterly-report-process"
-            assert codex_plugin["version"] == "1.0.0"
+            assert codex_plugin["version"] == "1.0.1", f"Expected 1.0.1 got {codex_plugin['version']}"
             assert codex_plugin["skills"] == "./skills/"
             assert os.path.exists(skill_md), f"Missing {skill_md}"
             assert_file_contains(skill_md, "quarterly-report-process")
@@ -196,11 +202,11 @@ def run_verification() -> None:
 
             # ── Step 8: PUT edit, re-clone, assert updated content ────────────
             print("[verify] Step 8: PUT skill update, re-clone")
-            r = client.put("/api/marketplaces/finance-team-skills/skills/quarterly-report-process", json={
+            r = client.put("/api/marketplaces/finance-team-skills/plugins/quarterly-report-process/skills/quarterly-report-process", json={
                 "content": "UPDATED: The new quarterly process."
             })
             assert r.status_code == 200, f"Step 8 PUT failed: {r.status_code} {r.text}"
-            assert r.json()["version"] == "1.0.1"
+            assert r.json()["version"] == "1.0.1", f"Expected skill 1.0.1 got {r.json()['version']}"
 
             clone_dir2 = os.path.join(tmpdir, "clone2")
             clone_repo(git_url, clone_dir2)
@@ -215,12 +221,12 @@ def run_verification() -> None:
                 "plugin.json",
             )
             codex_plugin2 = json.loads(Path(codex_plugin2_path).read_text())
-            assert codex_plugin2["version"] == "1.0.1"
+            assert codex_plugin2["version"] == "1.0.2", f"Expected plugin 1.0.2 got {codex_plugin2['version']}"
             print("  Updated content in re-clone  ✓")
 
-            # ── Step 9: DELETE skill, assert gone from JSON and repo ──────────
-            print("[verify] Step 9: DELETE skill")
-            r = client.delete("/api/marketplaces/finance-team-skills/skills/quarterly-report-process")
+            # ── Step 9: DELETE plugin, assert gone from JSON and repo ─────────
+            print("[verify] Step 9: DELETE plugin")
+            r = client.delete("/api/marketplaces/finance-team-skills/plugins/quarterly-report-process")
             assert r.status_code == 204, f"Step 9 DELETE failed: {r.status_code}"
 
             r = client.get("/m/finance-team-skills")
@@ -241,7 +247,12 @@ def run_verification() -> None:
             assert r.status_code == 201
             assert r.json()["slug"] == "engineering-runbooks"
 
-            r = client.post("/api/marketplaces/engineering-runbooks/skills", json={
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins", json={
+                "displayName": "Deploy Process",
+                "description": "How to deploy",
+            })
+            assert r.status_code == 201
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins/deploy-process/skills", json={
                 "displayName": "Deploy Process",
                 "description": "How to deploy",
                 "content": "Run the deploy script.",
@@ -263,6 +274,94 @@ def run_verification() -> None:
             assert_file_missing(os.path.join(eng_clone, "plugins", "quarterly-report-process"))
             print("  Second marketplace isolated  ✓")
 
+            # ── Step 10b: Multi-capability plugin rendering ───────────────────
+            print("[verify] Step 10b: Create multi-capability plugin")
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins", json={
+                "displayName": "Ops Toolkit",
+                "description": "Operational Claude plugin components",
+            })
+            assert r.status_code == 201, f"Plugin create failed: {r.status_code} {r.text}"
+
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins/ops-toolkit/skills", json={
+                "displayName": "Incident Triage",
+                "description": "Triage incidents",
+                "content": "Follow the incident checklist.",
+            })
+            assert r.status_code == 201, f"Plugin skill create failed: {r.status_code} {r.text}"
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins/ops-toolkit/hooks", json={
+                "displayName": "Format on edit",
+                "event": "PostToolUse",
+                "matcher": "Write|Edit",
+                "handler": {
+                    "type": "command",
+                    "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format.sh",
+                    "args": [],
+                    "timeout": 30,
+                },
+                "unsafeConfirmed": True,
+            })
+            assert r.status_code == 201, f"Hook create failed: {r.status_code} {r.text}"
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins/ops-toolkit/agents", json={
+                "displayName": "Reviewer",
+                "description": "Reviews operational changes",
+                "prompt": "Review the change.",
+                "config": {"model": "sonnet", "maxTurns": 5},
+            })
+            assert r.status_code == 201, f"Agent create failed: {r.status_code} {r.text}"
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins/ops-toolkit/mcp-servers", json={
+                "displayName": "Status API",
+                "config": {"type": "http", "url": "https://status.example.com/mcp"},
+                "unsafeConfirmed": True,
+            })
+            assert r.status_code == 201, f"MCP create failed: {r.status_code} {r.text}"
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins/ops-toolkit/commands", json={
+                "displayName": "Deploy",
+                "description": "Deploy safely",
+                "content": "Deploy with $ARGUMENTS.",
+            })
+            assert r.status_code == 201, f"Command create failed: {r.status_code} {r.text}"
+            r = client.post("/api/marketplaces/engineering-runbooks/plugins/ops-toolkit/monitors", json={
+                "displayName": "Error Log",
+                "command": "tail -F ./logs/error.log",
+                "description": "Application error log",
+                "when": "always",
+                "unsafeConfirmed": True,
+            })
+            assert r.status_code == 201, f"Monitor create failed: {r.status_code} {r.text}"
+            r = client.put("/api/marketplaces/engineering-runbooks/plugins/ops-toolkit/settings", json={
+                "settings": {"agent": "reviewer"},
+            })
+            assert r.status_code == 200, f"Settings save failed: {r.status_code} {r.text}"
+
+            r_eng = client.get("/m/engineering-runbooks")
+            plugin_names = [p["name"] for p in r_eng.json()["plugins"]]
+            assert plugin_names == ["deploy-process", "ops-toolkit"], plugin_names
+            ops_entry = [p for p in r_eng.json()["plugins"] if p["name"] == "ops-toolkit"][0]
+            assert ops_entry["source"]["path"] == "plugins/ops-toolkit"
+
+            eng_clone2 = os.path.join(tmpdir, "eng_clone_multi")
+            clone_repo(eng_git_url, eng_clone2)
+            ops_dir = os.path.join(eng_clone2, "plugins", "ops-toolkit")
+            claude_manifest = json.loads(Path(os.path.join(ops_dir, ".claude-plugin", "plugin.json")).read_text())
+            assert claude_manifest["skills"] == "./skills/"
+            assert claude_manifest["hooks"] == "./hooks/hooks.json"
+            assert claude_manifest["agents"] == "./agents/"
+            assert claude_manifest["mcpServers"] == "./.mcp.json"
+            assert claude_manifest["commands"] == "./commands/"
+            assert claude_manifest["experimental"]["monitors"] == "./monitors/monitors.json"
+            assert_file_contains(os.path.join(ops_dir, "skills", "incident-triage", "SKILL.md"), "Follow the incident checklist.")
+            hooks_json = json.loads(Path(os.path.join(ops_dir, "hooks", "hooks.json")).read_text())
+            assert hooks_json["hooks"]["PostToolUse"][0]["matcher"] == "Write|Edit"
+            assert_file_contains(os.path.join(ops_dir, "agents", "reviewer.md"), "maxTurns: 5")
+            mcp_json = json.loads(Path(os.path.join(ops_dir, ".mcp.json")).read_text())
+            assert mcp_json["mcpServers"]["status-api"]["type"] == "http"
+            assert_file_contains(os.path.join(ops_dir, "commands", "deploy.md"), "Deploy with $ARGUMENTS.")
+            monitors_json = json.loads(Path(os.path.join(ops_dir, "monitors", "monitors.json")).read_text())
+            assert monitors_json[0]["name"] == "error-log"
+            settings_json = json.loads(Path(os.path.join(ops_dir, "settings.json")).read_text())
+            assert settings_json["agent"] == "reviewer"
+            print("  Multi-capability plugin layout correct  ✓")
+
             # ── Step 11: DELETE first marketplace ────────────────────────────
             print("[verify] Step 11: DELETE finance-team-skills")
             r = client.delete("/api/marketplaces/finance-team-skills")
@@ -281,7 +380,7 @@ def run_verification() -> None:
             # Second marketplace unaffected
             r = client.get("/m/engineering-runbooks")
             assert r.status_code == 200
-            assert len(r.json()["plugins"]) == 1
+            assert len(r.json()["plugins"]) == 2
             eng_repo = os.path.join(data_dir, "marketplaces", "engineering-runbooks")
             assert os.path.isdir(eng_repo), "Engineering repo was unexpectedly deleted"
             print("  First deleted, second unaffected  ✓")
