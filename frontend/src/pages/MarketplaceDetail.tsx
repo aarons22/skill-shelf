@@ -35,8 +35,7 @@ interface MarketplaceUser {
   isOwner: boolean;
 }
 
-type Tab = "plugins" | "settings";
-type SettingsTab = "details" | "people" | "tokens" | "danger";
+type Tab = "plugins" | "details" | "people" | "tokens" | "danger";
 
 export default function MarketplaceDetail() {
   const { slug } = useParams<{ slug: string }>();
@@ -46,7 +45,6 @@ export default function MarketplaceDetail() {
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [users, setUsers] = useState<MarketplaceUser[]>([]);
   const [tab, setTab] = useState<Tab>("plugins");
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>("details");
   const [loading, setLoading] = useState(true);
   const [settingsForm, setSettingsForm] = useState({ displayName: "" });
   const [visibility, setVisibility] = useState<"workspace" | "restricted">("workspace");
@@ -91,7 +89,8 @@ export default function MarketplaceDetail() {
   );
 
   useEffect(() => {
-    if (tab === "settings" && marketplace && !isMarketplaceAdmin) {
+    const adminTabs: Tab[] = ["details", "people", "tokens", "danger"];
+    if (adminTabs.includes(tab) && marketplace && !isMarketplaceAdmin) {
       setTab("plugins");
     }
   }, [tab, marketplace, isMarketplaceAdmin]);
@@ -181,7 +180,7 @@ export default function MarketplaceDetail() {
         </nav>
 
         <div className="mb-6 flex gap-6 border-b border-slate-200">
-          {(["plugins", ...(isMarketplaceAdmin ? ["settings"] : [])] as Tab[]).map((item) => (
+          {(["plugins", ...(isMarketplaceAdmin ? ["details", "people", "tokens", "danger"] : [])] as Tab[]).map((item) => (
             <button
               key={item}
               onClick={() => setTab(item)}
@@ -232,23 +231,7 @@ export default function MarketplaceDetail() {
           </div>
         )}
 
-        {tab === "settings" && (
-          <div>
-            <div className="mb-6 flex gap-4 border-b border-slate-200">
-              {(["details", "people", "tokens", "danger"] as SettingsTab[]).map((st) => (
-                <button
-                  key={st}
-                  onClick={() => setSettingsTab(st)}
-                  className={`pb-2 text-sm font-medium capitalize ${
-                    settingsTab === st ? "border-b-2 border-slate-950 text-slate-950" : "text-slate-500 hover:text-slate-900"
-                  }`}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
-
-            {settingsTab === "details" && (
+        {tab === "details" && (
               <form onSubmit={handleSaveSettings} className="max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6">
                 <h2 className="text-sm font-semibold text-slate-700">Marketplace details</h2>
                 <SettingsField label="Name" value={settingsForm.displayName} onChange={(v) => setSettingsForm((f) => ({ ...f, displayName: v }))} />
@@ -272,7 +255,7 @@ export default function MarketplaceDetail() {
               </form>
             )}
 
-            {settingsTab === "people" && (
+            {tab === "people" && (
               <div className="max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6">
                 <h2 className="text-sm font-semibold text-slate-700">People</h2>
                 <div className="space-y-3 rounded-md border border-slate-200 p-3">
@@ -349,7 +332,7 @@ export default function MarketplaceDetail() {
               </div>
             )}
 
-            {settingsTab === "tokens" && (
+            {tab === "tokens" && (
               <div className="max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6">
                 <div>
                   <h2 className="text-sm font-semibold text-slate-700">Read-only access token</h2>
@@ -365,7 +348,7 @@ export default function MarketplaceDetail() {
               </div>
             )}
 
-            {settingsTab === "danger" && (
+            {tab === "danger" && (
               <div className="max-w-lg rounded-lg border border-red-200 bg-white p-6">
                 <h2 className="mb-2 text-sm font-semibold text-red-700">Delete marketplace</h2>
                 <p className="mb-4 text-sm text-slate-600">This removes all plugins and the git repository permanently. This cannot be undone.</p>
@@ -389,8 +372,6 @@ export default function MarketplaceDetail() {
                 </div>
               </div>
             )}
-          </div>
-        )}
       </main>
     </div>
   );

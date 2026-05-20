@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CopyLine from "../components/CopyLine";
-import { useMe } from "../lib/auth";
 import { ConsumerBadge } from "../lib/consumer-meta";
 
 interface Marketplace {
@@ -49,7 +48,6 @@ function componentSummary(p: Plugin): string {
 export default function BrowseMarketplaceDetail() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { me } = useMe();
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,10 +73,6 @@ export default function BrowseMarketplaceDetail() {
   const connectSnippet = `/plugin marketplace add ${origin}/m/${slug}`;
   const gitRepoUrl = `${origin}/m/${slug}/git/repo.git`;
   const copilotSnippet = `copilot plugin marketplace add ${gitRepoUrl}`;
-  const canManage = Boolean(
-    slug && me && (me.organizationAdmin || me.marketplaceAdminSlugs.includes(slug) || me.marketplaceMaintainerSlugs.includes(slug) || me.marketplaceContributorSlugs.includes(slug)),
-  );
-
   return (
     <div>
       <main className="mx-auto max-w-5xl px-4 py-6">
@@ -87,13 +81,6 @@ export default function BrowseMarketplaceDetail() {
           <span className="text-slate-300">/</span>
           <span className="font-medium text-slate-950">{marketplace.displayName}</span>
         </nav>
-        {canManage && (
-          <div className="mb-4 flex justify-end">
-            <Link to={`/manage/marketplaces/${slug}`} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              Manage marketplace
-            </Link>
-          </div>
-        )}
         <div className="mb-6 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-4">
           <CopyLine label="Add to Claude Code" value={connectSnippet} />
           <CopyLine label="Add to GitHub Copilot" value={copilotSnippet} />
