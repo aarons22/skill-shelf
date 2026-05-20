@@ -199,9 +199,12 @@ Component tables hang off `(marketplace_slug, plugin_slug)`:
 - `plugin_settings`: one JSON settings document per plugin
 
 Access control tables store provider-neutral identity and local grants:
-- `workspace_settings`: singleton workspace mode (`public`, `authenticated`, or `restricted`) and marketplace creation policy
-- `users`, `groups`, and `user_groups`: local identity records synced from headers/OIDC-style claims
-- `workspace_role_grants`, `marketplace_role_grants`, and `plugin_role_grants`: local role grants for users or groups
+- `organizations`: tenant boundary; v1 self-hosted uses one default organization
+- `workspace_settings`: legacy table name for organization access mode (`public`, `authenticated`, or `restricted`) and marketplace creation policy
+- `auth_providers`: organization-scoped GitHub/OIDC/trusted-header login provider metadata; secrets are env vars, never stored in SQLite
+- `users`, `groups`, and `user_groups`: organization-scoped identity records synced from sessions, trusted headers, or OIDC-style claims
+- `workspace_role_grants`: legacy table name for organization role grants; use `organization_admin` for new grants
+- `marketplace_role_grants` and `plugin_role_grants`: organization-scoped local role grants for users or groups
 - `access_tokens`: hashed scoped read tokens for marketplace JSON and git clone access
 - `audit_events`: reserved for access and destructive-action audit records
 
@@ -297,7 +300,7 @@ Each skill-bearing plugin also has `.codex-plugin/plugin.json` with `name`, `ver
 
 ## API surface
 
-All under `/api`, JSON in / JSON out. Access is controlled by workspace mode and local role grants.
+All under `/api`, JSON in / JSON out. Access is controlled by organization mode and local role grants.
 
 ### Marketplaces
 
@@ -313,13 +316,16 @@ All under `/api`, JSON in / JSON out. Access is controlled by workspace mode and
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/me` | Current user from trusted identity headers |
-| `GET` | `/api/workspace/settings` | Workspace access mode and marketplace creation policy |
-| `PUT` | `/api/workspace/settings` | Workspace-admin only; mode is `public`, `authenticated`, or `restricted` |
+| `GET` | `/api/me` | Current user from session or trusted identity headers |
+| `GET` | `/api/organization/settings` | Organization access mode and marketplace creation policy |
+| `PUT` | `/api/organization/settings` | Organization-admin only; mode is `public`, `authenticated`, or `restricted` |
+| `GET` | `/api/workspace/settings` | Compatibility alias for organization settings |
+| `PUT` | `/api/workspace/settings` | Compatibility alias for organization settings |
+| `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; client secrets are env var references |
 | `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
 | `GET/POST/DELETE` | `/api/access-tokens` | Scoped read token lifecycle |
 
-Roles are `workspace_admin`, `marketplace_admin`, `marketplace_maintainer`, optional `plugin_maintainer`, and `viewer`. In `public` mode, anonymous users can read all marketplaces and the local no-auth development flow keeps write access open until a host configures identity. In `authenticated` mode, workspace-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
+Roles are `organization_admin`, `marketplace_admin`, `marketplace_maintainer`, optional `plugin_maintainer`, and `viewer`. In `public` mode, anonymous users can read all marketplaces and the local no-auth development flow keeps write access open until a host configures identity. In `authenticated` mode, organization-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
 
 ### Plugins and components
 

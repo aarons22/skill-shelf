@@ -314,3 +314,69 @@ def test_development_mode_allows_workspace_settings_recovery_without_headers(cli
     r = client.put("/api/workspace/settings", json={"accessMode": "public"})
     assert r.status_code == 200
     assert r.json()["accessMode"] == "public"
+
+
+def test_organization_settings_aliases_workspace_settings(client):
+    r = client.put("/api/organization/settings", json={
+        "accessMode": "authenticated",
+        "marketplaceCreation": "organization_admin",
+    })
+    assert r.status_code == 200
+    assert r.json()["marketplaceCreation"] == "organization_admin"
+    assert client.get("/api/workspace/settings").json()["accessMode"] == "authenticated"
+    assert client.put("/api/organization/settings", json={"accessMode": "public"}).status_code == 200
+
+
+def test_auth_provider_config_references_secret_env_without_storing_secret(client, monkeypatch):
+    monkeypatch.setenv("SKILLSHELF_GITHUB_CLIENT_SECRET", "super-secret")
+    r = client.post("/api/organization/auth-providers", json={
+        "slug": "github-test",
+        "displayName": "GitHub Test",
+        "providerType": "github",
+        "clientId": "abc123",
+        "clientSecretEnvVar": "SKILLSHELF_GITHUB_CLIENT_SECRET",
+        "scopes": "read:user user:email",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["secretConfigured"] is True
+    assert "super-secret" not in str(data)
+
+    providers = client.get("/api/organization/auth-providers").json()
+    assert any(p["slug"] == "github-test" and p["secretConfigured"] for p in providers)
+
+
+def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_mode(client):
+    owner_headers = {
+        "X-SkillShelf-User-Email": "market-admin@example.com",
+        "X-SkillShelf-User-Name": "Market Admin",
+    }
+    other_headers = {
+        "X-SkillShelf-User-Email": "other-admin@example.com",
+        "X-SkillShelf-User-Name": "Other Admin",
+    }
+    assert client.put("/api/organization/settings", json={
+        "accessMode": "authenticated",
+        "marketplaceCreation": "authenticated",
+    }).status_code == 200
+    r = client.post("/api/marketplaces", headers=owner_headers, json={
+        "displayName": "Marketplace Admin Only",
+        "ownerName": "Market Admin",
+        "ownerEmail": "market-admin@example.com",
+    })
+    assert r.status_code == 201
+    # The first signed-in user became organization admin. A later marketplace
+    # owner is only a marketplace admin unless granted organization-wide access.
+    r = client.post("/api/marketplaces", headers=other_headers, json={
+        "displayName": "Second Admin Only",
+        "ownerName": "Other Admin",
+        "ownerEmail": "other-admin@example.com",
+    })
+    assert r.status_code == 201
+    assert client.put(
+        "/api/organization/settings",
+        headers=other_headers,
+        json={"accessMode": "restricted"},
+    ).status_code == 403
+    assert client.get("/api/marketplaces/second-admin-only", headers=other_headers).status_code == 200
+    assert client.put("/api/organization/settings", json={"accessMode": "public"}).status_code == 200

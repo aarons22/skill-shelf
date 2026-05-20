@@ -28,7 +28,7 @@ Set `PUBLIC_BASE_URL` in `.env` to the URL your AI coding agents can reach. Skil
 
 ## Basic Use
 
-1. Open SkillShelf and go to the admin UI.
+1. Open SkillShelf and go to `/manage`.
 2. Create a marketplace for a team or workflow area.
 3. Create a plugin inside that marketplace.
 4. Add skills, hooks, agents, MCP servers, commands, monitors, or default settings to the plugin.
@@ -52,7 +52,10 @@ For production, put SkillShelf behind HTTPS and set:
 PUBLIC_BASE_URL=https://your-server.example.com
 SKILLSHELF_DATA_DIR=/var/lib/skillshelf
 NODE_ENV=production
+SKILLSHELF_SESSION_SECRET=<long-random-secret>
 ```
+
+Organization admins configure login providers at `/organization/auth`. Provider client secrets are referenced by environment variable name, for example `SKILLSHELF_GITHUB_CLIENT_SECRET`, and are not stored in SQLite.
 
 When running the backend directly for local development, use a writable local path such as `SKILLSHELF_DATA_DIR=../.skillshelf-data`.
 
@@ -64,7 +67,7 @@ SkillShelf is currently intended for trusted internal networks and trusted plugi
 
 ## Roadmap
 
-- Auth and RBAC, including OIDC/SAML provider support for systems like Okta.
+- Multi-organization SaaS features such as organization switching, membership lifecycle, and billing.
 - Audit logs and approval workflows for plugin changes.
 - Safer review and signing flows for executable components like hooks, MCP servers, and monitors.
 - Cloud deployment hardening: backups, restore docs, health checks, metrics, and managed storage options.
