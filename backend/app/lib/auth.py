@@ -8,6 +8,7 @@ from typing import Any, Literal
 from fastapi import Header, HTTPException, Query, Request, status
 from sqlalchemy import and_, insert, or_, select, update
 
+from app.config import get_settings
 from app.models import (
     access_tokens,
     audit_events,
@@ -359,7 +360,7 @@ def has_plugin_role(conn, actor: Actor | None, marketplace_slug: str, plugin_slu
 
 def anonymous_admin_if_public(conn) -> Actor | None:
     settings = ensure_workspace_settings(conn)
-    if settings["access_mode"] == "public":
+    if settings["access_mode"] == "public" or get_settings().node_env == "development":
         return Actor(user_id=None, email="anonymous@skillshelf.local", display_name="Anonymous", anonymous=True)
     return None
 

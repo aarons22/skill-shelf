@@ -43,7 +43,19 @@ export default function MarketplacesList() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accessMode: next.accessMode, marketplaceCreation: next.marketplaceCreation }),
     });
-    setSettingsMsg(r.ok ? "Saved." : "Save failed.");
+    if (r.ok) {
+      setSettingsMsg("Saved.");
+      return;
+    }
+    let detail = "";
+    try {
+      const payload = await r.json();
+      detail = typeof payload.detail === "string" ? ` ${payload.detail}` : "";
+    } catch {
+      detail = "";
+    }
+    setSettings(settings);
+    setSettingsMsg(`Save failed.${detail}`);
   };
 
   return (

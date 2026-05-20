@@ -307,3 +307,10 @@ def test_restricted_mode_filters_marketplaces_and_allows_scoped_read_tokens(clie
     assert client.get("/m/private-team", params={"access_token": token}).status_code == 200
     visible_slugs = {row["slug"] for row in client.get("/api/marketplaces", headers=headers).json()}
     assert "private-team" in visible_slugs
+
+
+def test_development_mode_allows_workspace_settings_recovery_without_headers(client):
+    assert client.put("/api/workspace/settings", json={"accessMode": "authenticated"}).status_code == 200
+    r = client.put("/api/workspace/settings", json={"accessMode": "public"})
+    assert r.status_code == 200
+    assert r.json()["accessMode"] == "public"
