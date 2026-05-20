@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:3000"
     data_dir: str = Field("./.skillshelf-data", validation_alias="SKILLSHELF_DATA_DIR")
     node_env: str = "development"
+    session_secret: str = Field("dev-session-secret-change-me", validation_alias="SKILLSHELF_SESSION_SECRET")
+    trusted_header_auth: bool = Field(True, validation_alias="SKILLSHELF_TRUSTED_HEADER_AUTH")
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 

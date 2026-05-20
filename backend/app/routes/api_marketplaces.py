@@ -7,6 +7,7 @@ from sqlalchemy import delete, func, insert, select, update
 from app.db import get_connection, get_transaction
 from app.lib.auth import (
     Actor,
+    DEFAULT_ORGANIZATION_ID,
     MARKETPLACE_ADMIN,
     can_create_marketplace,
     get_optional_actor,
@@ -100,6 +101,7 @@ def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor |
     try:
         with get_transaction() as conn:
             conn.execute(insert(marketplaces).values(
+                organization_id=DEFAULT_ORGANIZATION_ID,
                 slug=slug,
                 display_name=body.displayName,
                 owner_name=body.ownerName,
@@ -110,6 +112,7 @@ def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor |
             ))
             if actor and actor.user_id is not None:
                 conn.execute(insert(marketplace_role_grants).values(
+                    organization_id=DEFAULT_ORGANIZATION_ID,
                     marketplace_slug=slug,
                     principal_type="user",
                     principal_id=actor.user_id,

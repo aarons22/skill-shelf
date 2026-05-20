@@ -279,16 +279,20 @@ class CurrentUserOut(BaseModel):
     email: Optional[str] = None
     displayName: Optional[str] = None
     workspaceAdmin: bool = False
+    organizationAdmin: bool = False
+    marketplaceAdminSlugs: list[str] = Field(default_factory=list)
+    provider: Optional[str] = None
+    loginConfigured: bool = False
 
 
 class WorkspaceSettingsOut(BaseModel):
     accessMode: Literal["public", "authenticated", "restricted"]
-    marketplaceCreation: Literal["authenticated", "workspace_admin"]
+    marketplaceCreation: Literal["authenticated", "organization_admin", "workspace_admin"]
 
 
 class WorkspaceSettingsUpdate(BaseModel):
     accessMode: Optional[Literal["public", "authenticated", "restricted"]] = None
-    marketplaceCreation: Optional[Literal["authenticated", "workspace_admin"]] = None
+    marketplaceCreation: Optional[Literal["authenticated", "organization_admin", "workspace_admin"]] = None
 
 
 class PrincipalGrantIn(BaseModel):
@@ -329,3 +333,54 @@ class AccessTokenOut(BaseModel):
     expiresAt: Optional[int] = None
     revokedAt: Optional[int] = None
     createdAt: int
+
+
+class AuthProviderIn(BaseModel):
+    slug: str
+    displayName: str
+    providerType: Literal["github", "oidc", "trusted_headers"]
+    enabled: bool = True
+    clientId: str = ""
+    clientSecretEnvVar: str = ""
+    issuerUrl: Optional[str] = None
+    authorizationUrl: Optional[str] = None
+    tokenUrl: Optional[str] = None
+    userinfoUrl: Optional[str] = None
+    scopes: str = "openid email profile"
+    groupClaim: Optional[str] = None
+    allowedOrgs: Optional[str] = None
+
+
+class AuthProviderUpdate(BaseModel):
+    displayName: Optional[str] = None
+    enabled: Optional[bool] = None
+    clientId: Optional[str] = None
+    clientSecretEnvVar: Optional[str] = None
+    issuerUrl: Optional[str] = None
+    authorizationUrl: Optional[str] = None
+    tokenUrl: Optional[str] = None
+    userinfoUrl: Optional[str] = None
+    scopes: Optional[str] = None
+    groupClaim: Optional[str] = None
+    allowedOrgs: Optional[str] = None
+
+
+class AuthProviderOut(BaseModel):
+    id: int
+    slug: str
+    displayName: str
+    providerType: Literal["github", "oidc", "trusted_headers"]
+    enabled: bool
+    clientId: str
+    clientSecretEnvVar: str
+    secretConfigured: bool
+    issuerUrl: Optional[str] = None
+    authorizationUrl: Optional[str] = None
+    tokenUrl: Optional[str] = None
+    userinfoUrl: Optional[str] = None
+    scopes: str
+    groupClaim: Optional[str] = None
+    allowedOrgs: Optional[str] = None
+    loginUrl: str
+    createdAt: int
+    updatedAt: int

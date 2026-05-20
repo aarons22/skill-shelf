@@ -5,16 +5,18 @@ import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from fastapi import Header, HTTPException, Query, Request, status
+from fastapi import Cookie, Header, HTTPException, Query, Request, status
 from sqlalchemy import and_, insert, or_, select, update
 
 from app.config import get_settings
+from app.lib.session import COOKIE_NAME, read_payload
 from app.models import (
     access_tokens,
     audit_events,
     groups,
     marketplace_role_grants,
     marketplaces,
+    organizations,
     plugin_role_grants,
     user_groups,
     users,
@@ -24,7 +26,9 @@ from app.models import (
 
 AccessMode = Literal["public", "authenticated", "restricted"]
 
-WORKSPACE_ADMIN = "workspace_admin"
+DEFAULT_ORGANIZATION_ID = 1
+ORGANIZATION_ADMIN = "organization_admin"
+WORKSPACE_ADMIN = ORGANIZATION_ADMIN
 MARKETPLACE_ADMIN = "marketplace_admin"
 MARKETPLACE_MAINTAINER = "marketplace_maintainer"
 PLUGIN_MAINTAINER = "plugin_maintainer"
@@ -58,8 +62,31 @@ def generate_token() -> str:
     return "ssrt_" + secrets.token_urlsafe(32)
 
 
+def ensure_default_organization(conn) -> dict[str, Any]:
+    row = conn.execute(select(organizations).where(organizations.c.id == DEFAULT_ORGANIZATION_ID)).mappings().one_or_none()
+    if row is not None:
+        return dict(row)
+    now = now_ts()
+    conn.execute(insert(organizations).values(
+        id=DEFAULT_ORGANIZATION_ID,
+        slug="default",
+        display_name="Default Organization",
+        created_at=now,
+        updated_at=now,
+    ))
+    return {
+        "id": DEFAULT_ORGANIZATION_ID,
+        "slug": "default",
+        "display_name": "Default Organization",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 def record_audit(conn, actor: Actor | None, action: str, target_type: str, target_id: str, metadata: dict[str, Any] | None = None) -> None:
+    ensure_default_organization(conn)
     conn.execute(insert(audit_events).values(
+        organization_id=DEFAULT_ORGANIZATION_ID,
         actor_user_id=actor.user_id if actor else None,
         action=action,
         target_type=target_type,
@@ -70,12 +97,14 @@ def record_audit(conn, actor: Actor | None, action: str, target_type: str, targe
 
 
 def ensure_workspace_settings(conn) -> dict[str, Any]:
+    ensure_default_organization(conn)
     row = conn.execute(select(workspace_settings).where(workspace_settings.c.id == 1)).mappings().one_or_none()
     if row is not None:
         return dict(row)
     now = now_ts()
     conn.execute(insert(workspace_settings).values(
         id=1,
+        organization_id=DEFAULT_ORGANIZATION_ID,
         access_mode="public",
         marketplace_creation="authenticated",
         created_at=now,
@@ -91,12 +120,18 @@ def ensure_workspace_settings(conn) -> dict[str, Any]:
 
 
 def upsert_user(conn, provider: str, subject: str, email: str, display_name: str) -> Actor:
+    ensure_default_organization(conn)
     now = now_ts()
     row = conn.execute(
-        select(users).where(users.c.provider == provider, users.c.provider_subject == subject)
+        select(users).where(
+            users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            users.c.provider == provider,
+            users.c.provider_subject == subject,
+        )
     ).mappings().one_or_none()
     if row is None:
         conn.execute(insert(users).values(
+            organization_id=DEFAULT_ORGANIZATION_ID,
             provider=provider,
             provider_subject=subject,
             email=email,
@@ -113,7 +148,11 @@ def upsert_user(conn, provider: str, subject: str, email: str, display_name: str
             )
         )
     user = conn.execute(
-        select(users).where(users.c.provider == provider, users.c.provider_subject == subject)
+        select(users).where(
+            users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            users.c.provider == provider,
+            users.c.provider_subject == subject,
+        )
     ).mappings().one()
     if user["disabled_at"] is not None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
@@ -122,9 +161,10 @@ def upsert_user(conn, provider: str, subject: str, email: str, display_name: str
     ).one_or_none()
     if existing_admin is None:
         conn.execute(insert(workspace_role_grants).values(
+            organization_id=DEFAULT_ORGANIZATION_ID,
             principal_type="user",
             principal_id=user["id"],
-            role=WORKSPACE_ADMIN,
+            role=ORGANIZATION_ADMIN,
             created_at=now,
         ))
     return Actor(user_id=user["id"], email=user["email"], display_name=user["display_name"])
@@ -139,10 +179,15 @@ def sync_header_groups(conn, actor: Actor, provider: str, group_names: list[str]
         if not key:
             continue
         row = conn.execute(
-            select(groups).where(groups.c.provider == provider, groups.c.provider_key == key)
+            select(groups).where(
+                groups.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                groups.c.provider == provider,
+                groups.c.provider_key == key,
+            )
         ).mappings().one_or_none()
         if row is None:
             conn.execute(insert(groups).values(
+                organization_id=DEFAULT_ORGANIZATION_ID,
                 provider=provider,
                 provider_key=key,
                 display_name=key,
@@ -150,7 +195,11 @@ def sync_header_groups(conn, actor: Actor, provider: str, group_names: list[str]
                 updated_at=now,
             ))
             row = conn.execute(
-                select(groups).where(groups.c.provider == provider, groups.c.provider_key == key)
+                select(groups).where(
+                    groups.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                    groups.c.provider == provider,
+                    groups.c.provider_key == key,
+                )
             ).mappings().one()
         exists = conn.execute(
             select(user_groups.c.user_id).where(
@@ -159,7 +208,12 @@ def sync_header_groups(conn, actor: Actor, provider: str, group_names: list[str]
             )
         ).one_or_none()
         if exists is None:
-            conn.execute(insert(user_groups).values(user_id=actor.user_id, group_id=row["id"], created_at=now))
+            conn.execute(insert(user_groups).values(
+                organization_id=DEFAULT_ORGANIZATION_ID,
+                user_id=actor.user_id,
+                group_id=row["id"],
+                created_at=now,
+            ))
 
 
 def actor_from_headers(
@@ -182,6 +236,7 @@ def actor_from_headers(
 
 def get_optional_actor(
     request: Request,
+    skillshelf_session: str | None = Cookie(default=None),
     x_skillshelf_user_email: str | None = Header(default=None),
     x_skillshelf_user_name: str | None = Header(default=None),
     x_skillshelf_user_id: str | None = Header(default=None),
@@ -192,31 +247,48 @@ def get_optional_actor(
         return actor
     from app.db import get_transaction
 
+    session = read_payload(skillshelf_session)
+    if session and session.get("user_id"):
+        with get_transaction() as conn:
+            user = conn.execute(
+                select(users).where(
+                    users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                    users.c.id == int(session["user_id"]),
+                )
+            ).mappings().one_or_none()
+            if user is not None and user["disabled_at"] is None:
+                actor = Actor(user_id=user["id"], email=user["email"], display_name=user["display_name"])
+                request.state.actor = actor
+                return actor
     with get_transaction() as conn:
-        actor = actor_from_headers(
-            conn,
-            x_skillshelf_user_email,
-            x_skillshelf_user_name,
-            x_skillshelf_user_id,
-            x_skillshelf_groups,
-        )
+        actor = None
+        if get_settings().trusted_header_auth or get_settings().node_env == "development":
+            actor = actor_from_headers(
+                conn,
+                x_skillshelf_user_email,
+                x_skillshelf_user_name,
+                x_skillshelf_user_id,
+                x_skillshelf_groups,
+            )
     request.state.actor = actor
     return actor
 
 
 def get_required_actor(
     request: Request,
+    skillshelf_session: str | None = Cookie(default=None),
     x_skillshelf_user_email: str | None = Header(default=None),
     x_skillshelf_user_name: str | None = Header(default=None),
     x_skillshelf_user_id: str | None = Header(default=None),
     x_skillshelf_groups: str | None = Header(default=None),
 ) -> Actor:
     actor = get_optional_actor(
-        request,
-        x_skillshelf_user_email,
-        x_skillshelf_user_name,
-        x_skillshelf_user_id,
-        x_skillshelf_groups,
+        request=request,
+        skillshelf_session=skillshelf_session,
+        x_skillshelf_user_email=x_skillshelf_user_email,
+        x_skillshelf_user_name=x_skillshelf_user_name,
+        x_skillshelf_user_id=x_skillshelf_user_id,
+        x_skillshelf_groups=x_skillshelf_groups,
     )
     if actor is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
@@ -253,12 +325,22 @@ def _principal_filters(conn, actor: Actor):
     group_ids = [
         row[0]
         for row in conn.execute(
-            select(user_groups.c.group_id).where(user_groups.c.user_id == actor.user_id)
+            select(user_groups.c.group_id).where(user_groups.c.organization_id == DEFAULT_ORGANIZATION_ID, user_groups.c.user_id == actor.user_id)
         ).all()
     ]
-    filters = [and_(workspace_role_grants.c.principal_type == "user", workspace_role_grants.c.principal_id == actor.user_id)]
+    filters = [
+        and_(
+            workspace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            workspace_role_grants.c.principal_type == "user",
+            workspace_role_grants.c.principal_id == actor.user_id,
+        )
+    ]
     filters.extend(
-        and_(workspace_role_grants.c.principal_type == "group", workspace_role_grants.c.principal_id == gid)
+        and_(
+            workspace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            workspace_role_grants.c.principal_type == "group",
+            workspace_role_grants.c.principal_id == gid,
+        )
         for gid in group_ids
     )
     return filters
@@ -274,7 +356,7 @@ def is_workspace_admin(conn, actor: Actor | None) -> bool:
         return False
     return conn.execute(
         select(workspace_role_grants.c.role).where(
-            workspace_role_grants.c.role == WORKSPACE_ADMIN,
+            workspace_role_grants.c.role.in_([ORGANIZATION_ADMIN, "workspace_admin"]),
             or_(*filters),
         )
     ).one_or_none() is not None
@@ -286,11 +368,12 @@ def _marketplace_filters(table, conn, actor: Actor, marketplace_slug: str):
     group_ids = [
         row[0]
         for row in conn.execute(
-            select(user_groups.c.group_id).where(user_groups.c.user_id == actor.user_id)
+            select(user_groups.c.group_id).where(user_groups.c.organization_id == DEFAULT_ORGANIZATION_ID, user_groups.c.user_id == actor.user_id)
         ).all()
     ]
     filters = [
         and_(
+            table.c.organization_id == DEFAULT_ORGANIZATION_ID,
             table.c.marketplace_slug == marketplace_slug,
             table.c.principal_type == "user",
             table.c.principal_id == actor.user_id,
@@ -298,6 +381,7 @@ def _marketplace_filters(table, conn, actor: Actor, marketplace_slug: str):
     ]
     filters.extend(
         and_(
+            table.c.organization_id == DEFAULT_ORGANIZATION_ID,
             table.c.marketplace_slug == marketplace_slug,
             table.c.principal_type == "group",
             table.c.principal_id == gid,
@@ -333,12 +417,13 @@ def has_plugin_role(conn, actor: Actor | None, marketplace_slug: str, plugin_slu
     group_ids = [
         row[0]
         for row in conn.execute(
-            select(user_groups.c.group_id).where(user_groups.c.user_id == actor.user_id)
+            select(user_groups.c.group_id).where(user_groups.c.organization_id == DEFAULT_ORGANIZATION_ID, user_groups.c.user_id == actor.user_id)
         ).all()
     ]
     filters = [
         and_(
             plugin_role_grants.c.marketplace_slug == marketplace_slug,
+            plugin_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
             plugin_role_grants.c.plugin_slug == plugin_slug,
             plugin_role_grants.c.principal_type == "user",
             plugin_role_grants.c.principal_id == actor.user_id,
@@ -347,6 +432,7 @@ def has_plugin_role(conn, actor: Actor | None, marketplace_slug: str, plugin_slu
     filters.extend(
         and_(
             plugin_role_grants.c.marketplace_slug == marketplace_slug,
+            plugin_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
             plugin_role_grants.c.plugin_slug == plugin_slug,
             plugin_role_grants.c.principal_type == "group",
             plugin_role_grants.c.principal_id == gid,
@@ -368,7 +454,7 @@ def anonymous_admin_if_public(conn) -> Actor | None:
 def require_workspace_admin(conn, actor: Actor | None) -> Actor:
     actor = actor or anonymous_admin_if_public(conn)
     if not is_workspace_admin(conn, actor):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace admin required")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization admin required")
     return actor
 
 
@@ -448,14 +534,22 @@ def _granted_marketplace_slugs(conn, actor: Actor, roles: set[str]) -> list[str]
     group_ids = [
         row[0]
         for row in conn.execute(
-            select(user_groups.c.group_id).where(user_groups.c.user_id == actor.user_id)
+            select(user_groups.c.group_id).where(user_groups.c.organization_id == DEFAULT_ORGANIZATION_ID, user_groups.c.user_id == actor.user_id)
         ).all()
     ]
     conditions = [
-        and_(marketplace_role_grants.c.principal_type == "user", marketplace_role_grants.c.principal_id == actor.user_id)
+        and_(
+            marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            marketplace_role_grants.c.principal_type == "user",
+            marketplace_role_grants.c.principal_id == actor.user_id,
+        )
     ]
     conditions.extend(
-        and_(marketplace_role_grants.c.principal_type == "group", marketplace_role_grants.c.principal_id == gid)
+        and_(
+            marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            marketplace_role_grants.c.principal_type == "group",
+            marketplace_role_grants.c.principal_id == gid,
+        )
         for gid in group_ids
     )
     rows = conn.execute(
