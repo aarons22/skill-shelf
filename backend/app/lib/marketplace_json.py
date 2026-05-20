@@ -162,6 +162,33 @@ def _plugin_rows_with_skills(slug: str, conn: Connection):
     ).mappings().all()
 
 
+def build_copilot_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
+    row = _marketplace_row(slug, conn)
+    owner_name, owner_email = _marketplace_owner(slug, conn)
+    plugin_rows = _plugin_rows(slug, conn)
+
+    return {
+        "name": slug,
+        "owner": {
+            "name": owner_name,
+            "email": owner_email,
+        },
+        "metadata": {
+            "description": row["display_name"],
+            "version": "1.0.0",
+        },
+        "plugins": [
+            {
+                "name": p["slug"],
+                "description": p["description"],
+                "version": p["version"],
+                "source": f"./plugins/{p['slug']}",
+            }
+            for p in plugin_rows
+        ],
+    }
+
+
 def serialize_marketplace_json(slug: str, conn: Connection) -> str:
     """Return the Claude marketplace.json as a JSON string for writing to disk."""
     import json
@@ -172,3 +199,9 @@ def serialize_codex_marketplace_json(slug: str, conn: Connection) -> str:
     """Return the Codex marketplace.json as a JSON string for writing to disk."""
     import json
     return json.dumps(build_codex_marketplace_json(slug, conn), indent=2)
+
+
+def serialize_copilot_marketplace_json(slug: str, conn: Connection) -> str:
+    """Return the Copilot marketplace.json as a JSON string for writing to disk."""
+    import json
+    return json.dumps(build_copilot_marketplace_json(slug, conn), indent=2)

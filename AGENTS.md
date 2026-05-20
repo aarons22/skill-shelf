@@ -215,16 +215,20 @@ Access control tables store provider-neutral identity and local grants:
 ```
 <repo-working-root>/
 ├── .claude-plugin/
-│   └── marketplace.json
+│   └── marketplace.json          # Claude Code marketplace format
 ├── .agents/
 │   └── plugins/
-│       └── marketplace.json
+│       └── marketplace.json      # Codex marketplace format (skill-bearing plugins only)
+├── .github/
+│   └── plugin/
+│       └── marketplace.json      # GitHub Copilot marketplace format (all plugins)
 └── plugins/
     └── <plugin-slug>/
         ├── .claude-plugin/
         │   └── plugin.json
         ├── .codex-plugin/              # only when plugin has skills
         │   └── plugin.json
+        ├── plugin.json                 # GitHub Copilot plugin manifest (always present)
         ├── hooks/
         │   └── hooks.json
         ├── agents/
@@ -250,7 +254,7 @@ description: <description>
 <content>
 ```
 
-Plugins are the installable unit. Claude consumers read `.claude-plugin/*` plus root-level plugin components. Codex consumers read `.agents/plugins/marketplace.json` plus each skill-bearing plugin's `.codex-plugin/plugin.json`; non-skill Claude components are not represented in Codex metadata.
+Plugins are the installable unit. Claude Code consumers read `.claude-plugin/*` plus root-level plugin components. Codex consumers read `.agents/plugins/marketplace.json` plus each skill-bearing plugin's `.codex-plugin/plugin.json`; non-skill Claude components are not represented in Codex metadata. GitHub Copilot consumers read `.github/plugin/marketplace.json` (all plugins) plus each plugin's root-level `plugin.json`; Copilot supports skills, agents, hooks, and MCP servers but not commands, monitors, or settings.
 
 ---
 
@@ -297,6 +301,21 @@ Codex marketplace metadata is committed to `.agents/plugins/marketplace.json` in
 ```
 
 Each skill-bearing plugin also has `.codex-plugin/plugin.json` with `name`, `version`, `description`, `skills: "./skills/"`, and interface metadata derived from the plugin.
+
+GitHub Copilot marketplace metadata is committed to `.github/plugin/marketplace.json`. It uses a different shape with a `source` string (not object) and a `metadata` block:
+
+```json
+{
+  "name": "<slug>",
+  "owner": { "name": "<owner_name>", "email": "<owner_email>" },
+  "metadata": { "description": "<display_name>", "version": "1.0.0" },
+  "plugins": [
+    { "name": "<plugin-slug>", "description": "...", "version": "...", "source": "./plugins/<plugin-slug>" }
+  ]
+}
+```
+
+Every plugin also gets a root-level `plugins/<plugin-slug>/plugin.json` for Copilot, with `name`, `version`, `description`, `author`, `license: "proprietary"`, and optional `skills`, `agents`, `hooks`, `mcpServers` fields (omitted when absent). Copilot does not use commands, monitors, or settings. Users register a Copilot marketplace with: `copilot plugin marketplace add <PUBLIC_BASE_URL>/m/<slug>/git/repo.git`.
 
 ---
 

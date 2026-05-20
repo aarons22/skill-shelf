@@ -96,6 +96,36 @@ def _codex_plugin_json(
     })
 
 
+def _copilot_plugin_json(
+    plugin_slug: str,
+    display_name: str,
+    description: str,
+    version: str,
+    owner_name: str,
+    owner_email: str,
+    components: dict[str, bool],
+) -> str:
+    manifest: dict[str, Any] = {
+        "name": plugin_slug,
+        "description": description,
+        "version": version,
+        "author": {
+            "name": owner_name,
+            "email": owner_email,
+        },
+        "license": "proprietary",
+    }
+    if components["skills"]:
+        manifest["skills"] = ["./skills/"]
+    if components["agents"]:
+        manifest["agents"] = "./agents/"
+    if components["hooks"]:
+        manifest["hooks"] = "./hooks/hooks.json"
+    if components["mcp"]:
+        manifest["mcpServers"] = "./.mcp.json"
+    return _json(manifest)
+
+
 def _skill_md(slug: str, description: str, content: str) -> str:
     return f"---\nname: {slug}\ndescription: {description}\n---\n{content}\n"
 
@@ -185,6 +215,16 @@ def build_plugin_files(marketplace_slug: str, plugin_slug: str, conn: Connection
     else:
         files[f"{base}/.codex-plugin/plugin.json"] = None
 
+    files[f"{base}/plugin.json"] = _copilot_plugin_json(
+        plugin_slug,
+        plugin["display_name"],
+        plugin["description"],
+        plugin["version"],
+        author_name,
+        author_email,
+        components,
+    )
+
     for skill in skill_rows:
         files[f"{base}/skills/{skill['slug']}/SKILL.md"] = _skill_md(
             skill["slug"],
@@ -251,6 +291,7 @@ def remove_plugin_files(plugin_slug: str, conn: Connection, marketplace_slug: st
     for rel in [
         f"plugins/{plugin_slug}/.claude-plugin/plugin.json",
         f"plugins/{plugin_slug}/.codex-plugin/plugin.json",
+        f"plugins/{plugin_slug}/plugin.json",
         f"plugins/{plugin_slug}/hooks/hooks.json",
         f"plugins/{plugin_slug}/.mcp.json",
         f"plugins/{plugin_slug}/monitors/monitors.json",
@@ -329,6 +370,7 @@ def sync_and_commit(
     files: dict[str, str | None] = {
         ".claude-plugin/marketplace.json": marketplace_json.serialize_marketplace_json(marketplace_slug, conn),
         ".agents/plugins/marketplace.json": marketplace_json.serialize_codex_marketplace_json(marketplace_slug, conn),
+        ".github/plugin/marketplace.json": marketplace_json.serialize_copilot_marketplace_json(marketplace_slug, conn),
     }
 
     # Step 4: apply extra file changes (skill writes or removals)

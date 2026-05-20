@@ -241,6 +241,20 @@ def run_verification() -> None:
             assert_file_contains(skill_md, "quarterly-report-process")
             assert_file_contains(skill_md, "Guides the quarterly reporting workflow")
             assert_file_contains(skill_md, "Follow these steps for quarterly reporting.")
+
+            copilot_mj_path = os.path.join(clone_dir, ".github", "plugin", "marketplace.json")
+            assert os.path.exists(copilot_mj_path), f"Missing {copilot_mj_path}"
+            copilot_mj = json.loads(Path(copilot_mj_path).read_text())
+            assert copilot_mj["name"] == "finance-team-skills"
+            assert copilot_mj["metadata"]["description"] == "Finance Team Skills"
+            assert copilot_mj["plugins"][0]["source"] == "./plugins/quarterly-report-process"
+
+            copilot_plugin_path = os.path.join(plugin_dir, "plugin.json")
+            assert os.path.exists(copilot_plugin_path), f"Missing {copilot_plugin_path}"
+            copilot_plugin = json.loads(Path(copilot_plugin_path).read_text())
+            assert copilot_plugin["name"] == "quarterly-report-process"
+            assert copilot_plugin["skills"] == ["./skills/"]
+            assert copilot_plugin["license"] == "proprietary"
             print("  §6 layout correct  ✓")
 
             # ── Step 8: PUT edit, re-clone, assert updated content ────────────
@@ -265,6 +279,10 @@ def run_verification() -> None:
             )
             codex_plugin2 = json.loads(Path(codex_plugin2_path).read_text())
             assert codex_plugin2["version"] == "1.0.2", f"Expected plugin 1.0.2 got {codex_plugin2['version']}"
+            copilot_plugin2 = json.loads(Path(os.path.join(
+                clone_dir2, "plugins", "quarterly-report-process", "plugin.json"
+            )).read_text())
+            assert copilot_plugin2["version"] == "1.0.2", f"Expected copilot plugin 1.0.2 got {copilot_plugin2['version']}"
             print("  Updated content in re-clone  ✓")
 
             # ── Step 9: DELETE plugin, assert gone from JSON and repo ─────────
@@ -399,6 +417,14 @@ def run_verification() -> None:
             assert monitors_json[0]["name"] == "error-log"
             settings_json = json.loads(Path(os.path.join(ops_dir, "settings.json")).read_text())
             assert settings_json["agent"] == "reviewer"
+            copilot_ops = json.loads(Path(os.path.join(ops_dir, "plugin.json")).read_text())
+            assert copilot_ops["skills"] == ["./skills/"]
+            assert copilot_ops["agents"] == "./agents/"
+            assert copilot_ops["hooks"] == "./hooks/hooks.json"
+            assert copilot_ops["mcpServers"] == "./.mcp.json"
+            assert copilot_ops["license"] == "proprietary"
+            assert "commands" not in copilot_ops
+            assert "experimental" not in copilot_ops
             print("  Multi-capability plugin layout correct  ✓")
 
             # ── Step 11: DELETE first marketplace ────────────────────────────
