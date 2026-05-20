@@ -2,9 +2,13 @@
 
 SkillShelf is a self-hostable web app for creating and managing Claude Code and Codex plugin marketplaces. Teams create a marketplace, add installable plugins, attach guided components, and share one marketplace URL without asking plugin authors to touch git.
 
-![SkillShelf basic flow](docs/assets/demo.gif)
+<p align="center">
+  <img src="docs/assets/screenshot-list.png" alt="SkillShelf showing two team marketplaces — Engineering Tools and Finance Team Skills" width="900" />
+</p>
 
-> The GIF above is a placeholder. Replace `docs/assets/demo.gif` with a short capture of: create marketplace, create plugin, add skill, copy Claude Code snippet, browse marketplace.
+<p align="center">
+  <img src="docs/assets/screenshot-detail.png" alt="Engineering Tools marketplace showing install snippets for Claude Code, GitHub Copilot, and Codex alongside plugin cards with one-line install commands" width="900" />
+</p>
 
 ## Quick Start
 

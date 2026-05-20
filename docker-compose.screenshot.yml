@@ -1,0 +1,37 @@
+# Isolated SkillShelf instance for screenshot generation.
+# Uses a separate Docker project namespace so it never touches the dev volume.
+#
+# Usage (managed by the regenerate-screenshot skill):
+#   docker compose -f docker-compose.screenshot.yml -p skillshelf-screenshot up -d --build
+#   docker compose -f docker-compose.screenshot.yml -p skillshelf-screenshot down -v
+#
+# The frontend is exposed on port 8899. PUBLIC_BASE_URL is set to a realistic
+# production-like URL so install snippets in the screenshot look polished.
+services:
+  backend:
+    build: ./backend
+    environment:
+      PORT: "3000"
+      PUBLIC_BASE_URL: "https://skillshelf.example.com"
+      SKILLSHELF_DATA_DIR: /var/lib/skillshelf
+      NODE_ENV: development
+      SKILLSHELF_SESSION_SECRET: screenshot-secret-not-for-production
+      SKILLSHELF_TRUSTED_HEADER_AUTH: "false"
+    volumes:
+      - skillshelf-screenshot-data:/var/lib/skillshelf
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 18
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8899:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  skillshelf-screenshot-data:

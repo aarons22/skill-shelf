@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "skillshelf",
+      "runtimeExecutable": "true",
+      "runtimeArgs": [],
+      "port": 80
+    }
+  ]
+}
