@@ -70,14 +70,6 @@ export default function BrowseMarketplaceDetail() {
           <span className="font-medium text-slate-950">{marketplace.displayName}</span>
         </nav>
         <div className="mb-6 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm text-slate-700">
-              Maintained by <span className="font-medium">{marketplace.ownerName}</span>
-            </p>
-            <Link to="/manage" className="text-xs text-slate-400 hover:text-slate-700">
-              Manage →
-            </Link>
-          </div>
           <CopyLine label="Add to Claude Code" value={connectSnippet} />
           <CopyLine label="Codex-compatible git repo" value={gitRepoUrl} />
         </div>

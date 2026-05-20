@@ -12,6 +12,7 @@ import ChangePassword from "./pages/ChangePassword";
 import SetupWizard from "./pages/SetupWizard";
 import { AuthProvider } from "./lib/auth";
 import AuthGate from "./components/AuthGate";
+import ManageGate from "./components/ManageGate";
 import AppShell from "./components/AppShell";
 
 export default function App() {
@@ -35,13 +36,13 @@ export default function App() {
             <Route path="/organization/tokens" element={<OrganizationAdmin />} />
             <Route path="/organization/users" element={<OrganizationAdmin />} />
 
-            {/* Marketplace management */}
-            <Route path="/manage" element={<MarketplacesList />} />
-            <Route path="/manage/marketplaces/new" element={<NewMarketplace />} />
-            <Route path="/manage/marketplaces/:slug" element={<MarketplaceDetail />} />
-            <Route path="/manage/marketplaces/:slug/plugins/new" element={<PluginEditor />} />
-            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/edit" element={<PluginEditor />} />
-            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/:componentType/:componentSlug/edit" element={<ComponentEditor />} />
+            {/* Marketplace management — requires authenticated org/marketplace admin */}
+            <Route path="/manage" element={<ManageGate><MarketplacesList /></ManageGate>} />
+            <Route path="/manage/marketplaces/new" element={<ManageGate><NewMarketplace /></ManageGate>} />
+            <Route path="/manage/marketplaces/:slug" element={<ManageGate><MarketplaceDetail /></ManageGate>} />
+            <Route path="/manage/marketplaces/:slug/plugins/new" element={<ManageGate><PluginEditor /></ManageGate>} />
+            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/edit" element={<ManageGate><PluginEditor /></ManageGate>} />
+            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/:componentType/:componentSlug/edit" element={<ManageGate><ComponentEditor /></ManageGate>} />
 
             {/* Legacy admin redirects */}
             <Route path="/admin" element={<Navigate to="/manage" replace />} />
