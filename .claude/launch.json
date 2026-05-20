@@ -2,10 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "skillshelf",
-      "runtimeExecutable": "true",
-      "runtimeArgs": [],
-      "port": 80
+      "name": "skillshelf-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173,
+      "cwd": "frontend",
+      "env": {
+        "VITE_API_PROXY_TARGET": "http://localhost:3000"
+      }
     }
   ]
 }

@@ -9,6 +9,7 @@ import PluginSettingsEditor from "../components/PluginSettingsEditor";
 import { useMe } from "../lib/auth";
 
 type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "monitors";
+type EditorTab = ComponentType | "settings";
 
 interface Marketplace { slug: string; displayName: string }
 interface Plugin { slug: string; displayName: string; description: string; version: string }
@@ -31,6 +32,15 @@ const SECTION_TITLES: Record<ComponentType, string> = {
   skills: "Skills", hooks: "Hooks", agents: "Agents",
   "mcp-servers": "MCP Servers", monitors: "Monitors",
 };
+
+const EDITOR_TABS: EditorTab[] = ["skills", "hooks", "agents", "mcp-servers", "monitors", "settings"];
+
+function editorTabLabel(tab: EditorTab): string {
+  if (tab === "settings") return "Settings";
+  return SECTION_TITLES[tab];
+}
+
+const UNSAFE_TABS: EditorTab[] = ["hooks", "mcp-servers", "monitors"];
 
 const CONSUMER_SUPPORT: Record<ComponentType, string[]> = {
   skills: ["Claude Code", "Codex", "Copilot"],
@@ -61,6 +71,7 @@ export default function PluginEditor() {
   const [items, setItems] = useState<Record<string, Item[]>>({});
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [openModal, setOpenModal] = useState<ComponentType | null>(null);
+  const [editorTab, setEditorTab] = useState<EditorTab>("skills");
 
   useEffect(() => {
     let cancelled = false;
@@ -181,35 +192,57 @@ export default function PluginEditor() {
 
         {isEditing && pluginSlug && (
           <>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Hooks, MCP servers, and monitors can execute commands on users' machines after installation. Only add components your team trusts.
+            <div className="flex gap-1 border-b border-slate-200">
+              {EDITOR_TABS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setEditorTab(t)}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    editorTab === t
+                      ? "border-b-2 border-slate-950 text-slate-950"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {editorTabLabel(t)}
+                  {t !== "settings" && (items[t] ?? []).length > 0 && (
+                    <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-500">
+                      {(items[t] ?? []).length}
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
 
-            {(["skills", "hooks", "agents", "mcp-servers", "monitors"] as ComponentType[]).map((type) => (
+            {UNSAFE_TABS.includes(editorTab) && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {editorTab === "hooks" && "Hooks run shell commands on users' machines after tool use. Only add hooks your team trusts."}
+                {editorTab === "mcp-servers" && "MCP servers run processes on users' machines. Only add servers your team trusts."}
+                {editorTab === "monitors" && "Monitors run shell commands in the background on users' machines. Only add monitors your team trusts."}
+              </div>
+            )}
+
+            {editorTab !== "settings" ? (
               <ComponentPanel
-                key={type}
-                title={SECTION_TITLES[type]}
-                items={items[type] ?? []}
-                path={type}
-                docUrl={DOC_URLS[type]}
-                onAdd={() => setOpenModal(type)}
-                onDelete={(item) => deleteComponent(type, item)}
+                title={SECTION_TITLES[editorTab as ComponentType]}
+                items={items[editorTab] ?? []}
+                path={editorTab as ComponentType}
+                docUrl={DOC_URLS[editorTab as ComponentType]}
+                onAdd={() => setOpenModal(editorTab as ComponentType)}
+                onDelete={(item) => deleteComponent(editorTab as ComponentType, item)}
                 slug={slug!}
                 pluginSlug={pluginSlug}
                 canDelete={canDeleteContent}
               />
-            ))}
-
-            <section className="rounded-lg border border-slate-200 bg-white p-6">
-              <div className="mb-4 flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-slate-900">Default settings</h2>
-              </div>
-              <PluginSettingsEditor value={settings} onChange={setSettings} />
-              <button type="button" onClick={() => saveSettings(slug!, pluginSlug, settings, setError)} className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-                Save settings
-              </button>
-              {error && !openModal && <span className="mt-2 block text-sm text-red-600">{error}</span>}
-            </section>
+            ) : (
+              <section className="rounded-lg border border-slate-200 bg-white p-6">
+                <PluginSettingsEditor value={settings} onChange={setSettings} />
+                <button type="button" onClick={() => saveSettings(slug!, pluginSlug, settings, setError)} className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+                  Save settings
+                </button>
+                {error && !openModal && <span className="mt-2 block text-sm text-red-600">{error}</span>}
+              </section>
+            )}
 
             {openModal && (
               <Modal title={`Add ${MODAL_TITLES[openModal]}`} onClose={handleCloseModal}>
