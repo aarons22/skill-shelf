@@ -330,25 +330,30 @@ def test_organization_settings_update(client):
     assert client.put("/api/organization/settings", json={"accessMode": "public"}).status_code == 200
 
 
-def test_auth_provider_config_references_secret_env_without_storing_secret(client, monkeypatch):
-    monkeypatch.setenv("SKILLSHELF_GITHUB_CLIENT_SECRET", "super-secret")
+def test_auth_provider_stores_client_secret_and_never_returns_it(client):
     r = client.post("/api/organization/auth-providers", json={
         "slug": "github-test",
         "displayName": "GitHub Test",
         "providerType": "github",
         "clientId": "abc123",
-        "clientSecretEnvVar": "SKILLSHELF_GITHUB_CLIENT_SECRET",
-        "scopes": "read:user user:email",
+        "clientSecret": "super-secret",
+        "scopes": "garbage-ignored-value",
     })
     assert r.status_code == 201
     data = r.json()
     assert data["secretConfigured"] is True
     assert "super-secret" not in str(data)
+    assert "clientSecret" not in data
+    assert data["scopes"] == "read:user user:email"
 
     providers = client.get("/api/organization/auth-providers").json()
     assert any(p["slug"] == "github-test" and p["secretConfigured"] for p in providers)
     github_provider = next(p for p in providers if p["slug"] == "github-test")
+    assert "super-secret" not in str(providers)
+    assert "clientSecret" not in github_provider
     assert github_provider["callbackUrl"] == "http://testserver/auth/callback/github-test"
+    assert github_provider["scopes"] == "read:user user:email"
+
     public_providers = client.get("/api/auth/providers").json()
     assert [p["slug"] for p in public_providers[:2]] == ["local", "github-test"]
     assert public_providers[0]["kind"] == "credentials"
@@ -361,6 +366,29 @@ def test_auth_provider_config_references_secret_env_without_storing_secret(clien
     query = parse_qs(urlparse(redirect.headers["location"]).query)
     assert query["client_id"] == ["abc123"]
     assert query["redirect_uri"] == ["http://testserver/auth/callback/github-test"]
+
+    # Updating without clientSecret preserves the stored secret
+    patch = client.put("/api/organization/auth-providers/github-test", json={"displayName": "GitHub Updated"})
+    assert patch.status_code == 200
+    assert patch.json()["secretConfigured"] is True
+
+    # Clearing clientSecret removes the secret; login then returns 400
+    patch2 = client.put("/api/organization/auth-providers/github-test", json={"clientSecret": ""})
+    assert patch2.status_code == 200
+    assert patch2.json()["secretConfigured"] is False
+    assert client.get("/auth/login/github-test", follow_redirects=False).status_code == 400
+
+    # Allowlist with orgs triggers read:org scope
+    r2 = client.post("/api/organization/auth-providers", json={
+        "slug": "github-orgs",
+        "displayName": "GitHub Orgs",
+        "providerType": "github",
+        "clientId": "xyz",
+        "clientSecret": "org-secret",
+        "allowlist": {"orgs": ["acme"]},
+    })
+    assert r2.status_code == 201
+    assert r2.json()["scopes"] == "read:user user:email read:org"
 
 
 def test_organization_user_roles_can_be_viewed_and_changed(client):
@@ -497,6 +525,8 @@ def test_marketplace_contributor_can_write_but_not_delete_content(client):
 
 
 def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_mode(client):
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
     assert client.put("/api/organization/settings", json={
         "accessMode": "authenticated",
         "marketplaceCreation": "authenticated",

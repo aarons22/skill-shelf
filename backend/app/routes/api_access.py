@@ -1,4 +1,3 @@
-import os
 import json
 import time
 
@@ -22,6 +21,7 @@ from app.lib.auth import (
     upsert_user,
 )
 from app.lib.local_accounts import generate_temp_password, hash_password
+from app.lib.provider_allowlist import derive_github_scopes, parse_allowlist
 from app.lib.setup_state import is_required
 from app.models import access_tokens, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_role_grants, organization_settings, users
 from app.schemas import (
@@ -680,7 +680,7 @@ def _provider_values(raw: dict, now: int) -> dict:
         "providerType": "provider_type",
         "enabled": "enabled",
         "clientId": "client_id",
-        "clientSecretEnvVar": "client_secret_env_var",
+        "clientSecret": "client_secret",
         "issuerUrl": "issuer_url",
         "authorizationUrl": "authorization_url",
         "tokenUrl": "token_url",
@@ -697,13 +697,16 @@ def _provider_values(raw: dict, now: int) -> dict:
         values["provider_type"] = "trusted_header"
     if "allowlist_json" in values:
         values["allowlist_json"] = json.dumps(values["allowlist_json"] or {})
+    provider_type = values.get("provider_type") or raw.get("providerType")
+    if provider_type == "github":
+        allowlist = parse_allowlist(values.get("allowlist_json")) if "allowlist_json" in values else (raw.get("allowlist") or {})
+        values["scopes"] = derive_github_scopes(allowlist)
     if values:
         values["updated_at"] = now
     return values
 
 
 def _provider_out(row) -> dict:
-    secret_env = row["client_secret_env_var"] or ""
     provider_type = row["provider_type"]
     callback_url = None
     if provider_type not in {"local", "trusted_header", "trusted_headers"}:
@@ -715,8 +718,7 @@ def _provider_out(row) -> dict:
         "providerType": provider_type,
         "enabled": bool(row["enabled"]),
         "clientId": row["client_id"],
-        "clientSecretEnvVar": secret_env,
-        "secretConfigured": bool(secret_env and os.getenv(secret_env)),
+        "secretConfigured": bool(row["client_secret"]),
         "issuerUrl": row["issuer_url"],
         "authorizationUrl": row["authorization_url"],
         "tokenUrl": row["token_url"],

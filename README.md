@@ -79,7 +79,7 @@ NODE_ENV=production
 SKILLSHELF_SESSION_SECRET=<long-random-secret>
 ```
 
-Organization admins configure login providers at `/organization/auth`. Provider client secrets are referenced by environment variable name, for example `SKILLSHELF_GITHUB_CLIENT_SECRET`, and are not stored in SQLite.
+Organization admins configure login providers at `/organization/auth`. Provider client secrets are entered directly in the admin UI and stored in SQLite alongside other credentials (session keys and local-account password hashes).
 
 When running the backend directly for local development, use a writable local path such as `SKILLSHELF_DATA_DIR=../.skillshelf-data`.
 

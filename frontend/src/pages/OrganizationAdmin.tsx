@@ -19,7 +19,6 @@ interface AuthProvider {
   providerType: "local" | "github" | "oidc" | "trusted_header" | "trusted_headers";
   enabled: boolean;
   clientId: string;
-  clientSecretEnvVar: string;
   secretConfigured: boolean;
   issuerUrl?: string | null;
   authorizationUrl?: string | null;
@@ -53,12 +52,12 @@ function emptyProviderFor(type: "github" | "oidc" | "trusted_header") {
       providerType: "github" as const,
       enabled: true,
       clientId: "",
-      clientSecretEnvVar: "SKILLSHELF_GITHUB_CLIENT_SECRET",
+      clientSecret: "",
       issuerUrl: "",
       authorizationUrl: "",
       tokenUrl: "",
       userinfoUrl: "",
-      scopes: "read:user user:email",
+      scopes: "",
       groupClaim: "",
       allowedOrgs: "",
     };
@@ -70,7 +69,7 @@ function emptyProviderFor(type: "github" | "oidc" | "trusted_header") {
       providerType: "oidc" as const,
       enabled: true,
       clientId: "",
-      clientSecretEnvVar: "SKILLSHELF_OIDC_CLIENT_SECRET",
+      clientSecret: "",
       issuerUrl: "",
       authorizationUrl: "",
       tokenUrl: "",
@@ -86,7 +85,7 @@ function emptyProviderFor(type: "github" | "oidc" | "trusted_header") {
     providerType: "trusted_header" as const,
     enabled: true,
     clientId: "",
-    clientSecretEnvVar: "",
+    clientSecret: "",
     issuerUrl: "",
     authorizationUrl: "",
     tokenUrl: "",
@@ -279,7 +278,7 @@ export default function OrganizationAdmin() {
                             </div>
                           )}
                           {!provider.secretConfigured && provider.providerType !== "trusted_header" && provider.providerType !== "trusted_headers" && provider.providerType !== "local" && (
-                            <p className="mt-2 text-xs text-amber-700">Missing env var: {provider.clientSecretEnvVar}</p>
+                            <p className="mt-2 text-xs text-amber-700">Client secret not configured</p>
                           )}
                         </div>
                         <div className="flex shrink-0 items-center gap-3">
@@ -318,12 +317,21 @@ export default function OrganizationAdmin() {
                   <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
                   <Field label="Display name" value={providerForm.displayName} onChange={(v) => setProviderForm((f) => f && ({ ...f, displayName: v }))} />
                   {providerForm.providerType === "github" && (
-                    <GitHubSetupInstructions slug={providerForm.slug} clientSecretEnvVar={providerForm.clientSecretEnvVar} publicBaseUrl={me.publicBaseUrl} />
+                    <GitHubSetupInstructions slug={providerForm.slug} publicBaseUrl={me.publicBaseUrl} />
                   )}
                   {(providerForm.providerType === "github" || providerForm.providerType === "oidc") && (
                     <>
                       <Field label="Client ID" value={providerForm.clientId} onChange={(v) => setProviderForm((f) => f && ({ ...f, clientId: v }))} />
-                      <Field label="Client secret env var" value={providerForm.clientSecretEnvVar} onChange={(v) => setProviderForm((f) => f && ({ ...f, clientSecretEnvVar: v }))} />
+                      <label className="block">
+                        <span className="mb-1 block text-sm font-medium text-slate-700">Client secret</span>
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          value={providerForm.clientSecret}
+                          onChange={(e) => setProviderForm((f) => f && ({ ...f, clientSecret: e.target.value }))}
+                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </label>
                     </>
                   )}
                   {providerForm.providerType === "oidc" && (
@@ -332,7 +340,7 @@ export default function OrganizationAdmin() {
                       <Field label="Group claim" value={providerForm.groupClaim} onChange={(v) => setProviderForm((f) => f && ({ ...f, groupClaim: v }))} />
                     </>
                   )}
-                  {providerForm.providerType !== "trusted_header" && (
+                  {providerForm.providerType === "oidc" && (
                     <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => f && ({ ...f, scopes: v }))} />
                   )}
                   <div className="flex gap-3 pt-1">
@@ -424,15 +432,14 @@ function callbackUrlFor(slug: string, publicBaseUrl = window.location.origin) {
   return `${publicBaseUrl.replace(/\/$/, "")}/auth/callback/${cleanSlug}`;
 }
 
-function GitHubSetupInstructions({ slug, clientSecretEnvVar, publicBaseUrl }: { slug: string; clientSecretEnvVar: string; publicBaseUrl: string }) {
+function GitHubSetupInstructions({ slug, publicBaseUrl }: { slug: string; publicBaseUrl: string }) {
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
       <h3 className="text-sm font-semibold text-amber-950">Before saving GitHub</h3>
       <div className="mt-3 space-y-3 text-sm text-amber-950">
         <p>Create or edit the GitHub OAuth app, then set its Authorization callback URL to this exact value.</p>
         <CopyLine label="Authorization callback URL" value={callbackUrlFor(slug, publicBaseUrl)} />
-        <p>Set the OAuth app Client ID below. Put the Client Secret in the server environment variable named below, then restart the backend if the env var was added after startup.</p>
-        <CopyLine label="Client secret env var" value={clientSecretEnvVar || "SKILLSHELF_GITHUB_CLIENT_SECRET"} />
+        <p>Enter the OAuth app Client ID and Client Secret below. The secret is stored in SkillShelf's database.</p>
       </div>
     </div>
   );

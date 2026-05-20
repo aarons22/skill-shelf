@@ -4,6 +4,13 @@ from typing import Any
 from fastapi import HTTPException, status
 
 
+def derive_github_scopes(allowlist: dict[str, Any]) -> str:
+    base = "read:user user:email"
+    if allowlist.get("orgs"):
+        return base + " read:org"
+    return base
+
+
 def parse_allowlist(raw: str | None) -> dict[str, Any]:
     if not raw:
         return {}

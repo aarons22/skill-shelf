@@ -7,6 +7,7 @@ from sqlalchemy import insert, select, update
 from app.db import get_transaction
 from app.lib.auth import DEFAULT_ORGANIZATION_ID, ORGANIZATION_ADMIN, ensure_default_organization, now_ts, upsert_user
 from app.lib.local_accounts import hash_password
+from app.lib.provider_allowlist import derive_github_scopes
 from app.lib.session import COOKIE_NAME, sign_payload
 from app.lib.setup_state import is_required, mark_completed
 from app.models import auth_providers, local_account_credentials, organization_role_grants, organization_settings, organizations, users
@@ -81,12 +82,12 @@ def complete_setup(body: OrganizationSetupIn, request: Request):
             "provider_type": provider_type,
             "enabled": 1,
             "client_id": body.provider.clientId,
-            "client_secret_env_var": body.provider.clientSecretEnvVar,
+            "client_secret": body.provider.clientSecret,
             "issuer_url": body.provider.issuerUrl,
             "authorization_url": body.provider.authorizationUrl,
             "token_url": body.provider.tokenUrl,
             "userinfo_url": body.provider.userinfoUrl,
-            "scopes": body.provider.scopes,
+            "scopes": derive_github_scopes(body.provider.allowlist or {}) if provider_type == "github" else body.provider.scopes,
             "group_claim": body.provider.groupClaim,
             "allowed_orgs": None,
             "allowlist_json": json.dumps(body.provider.allowlist or {}),

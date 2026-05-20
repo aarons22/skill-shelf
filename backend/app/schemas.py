@@ -359,7 +359,7 @@ class AuthProviderIn(BaseModel):
     providerType: Literal["local", "github", "oidc", "trusted_header", "trusted_headers"]
     enabled: bool = True
     clientId: str = ""
-    clientSecretEnvVar: str = ""
+    clientSecret: str = ""
     issuerUrl: Optional[str] = None
     authorizationUrl: Optional[str] = None
     tokenUrl: Optional[str] = None
@@ -374,7 +374,7 @@ class AuthProviderUpdate(BaseModel):
     displayName: Optional[str] = None
     enabled: Optional[bool] = None
     clientId: Optional[str] = None
-    clientSecretEnvVar: Optional[str] = None
+    clientSecret: Optional[str] = None
     issuerUrl: Optional[str] = None
     authorizationUrl: Optional[str] = None
     tokenUrl: Optional[str] = None
@@ -392,7 +392,6 @@ class AuthProviderOut(BaseModel):
     providerType: Literal["local", "github", "oidc", "trusted_header", "trusted_headers"]
     enabled: bool
     clientId: str
-    clientSecretEnvVar: str
     secretConfigured: bool
     issuerUrl: Optional[str] = None
     authorizationUrl: Optional[str] = None
@@ -425,7 +424,7 @@ class SetupProviderIn(BaseModel):
     slug: str = "local"
     displayName: str = "Local Accounts"
     clientId: str = ""
-    clientSecretEnvVar: str = ""
+    clientSecret: str = ""
     issuerUrl: Optional[str] = None
     authorizationUrl: Optional[str] = None
     tokenUrl: Optional[str] = None

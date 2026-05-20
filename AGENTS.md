@@ -202,7 +202,7 @@ Component tables hang off `(marketplace_slug, plugin_slug)`:
 Access control tables store provider-neutral identity and local grants:
 - `organizations`: tenant boundary; v1 self-hosted uses one default organization
 - `organization_settings`: organization access mode (`public`, `authenticated`, or `restricted`) and marketplace creation policy
-- `auth_providers`: organization-scoped GitHub/OIDC/trusted-header login provider metadata; secrets are env vars, never stored in SQLite
+- `auth_providers`: organization-scoped GitHub/OIDC/trusted-header login provider metadata; client secrets stored as plaintext (same exposure surface as session keys and local-account password hashes)
 - `local_account_credentials`: local-account password credentials and forced password-change state
 - `users`, `groups`, and `user_groups`: organization-scoped identity records synced from sessions, trusted headers, or OIDC-style claims
 - `organization_role_grants`: organization role grants; use `organization_admin`
@@ -340,7 +340,7 @@ All under `/api`, JSON in / JSON out. Access is controlled by organization mode 
 | `GET` | `/api/me` | Current user from session or trusted identity headers |
 | `GET` | `/api/organization/settings` | Organization access mode and marketplace creation policy |
 | `PUT` | `/api/organization/settings` | Organization-admin only; mode is `public`, `authenticated`, or `restricted` |
-| `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; client secrets are env var references |
+| `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; PUT without `clientSecret` preserves stored value |
 | `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
 | `GET/POST/DELETE` | `/api/access-tokens` | Scoped read token lifecycle |
 

@@ -156,7 +156,7 @@ auth_providers = Table(
     Column("provider_type", Text, nullable=False),
     Column("enabled", Integer, nullable=False, default=1),
     Column("client_id", Text, nullable=False),
-    Column("client_secret_env_var", Text, nullable=False),
+    Column("client_secret", Text, nullable=False, default=""),
     Column("issuer_url", Text, nullable=True),
     Column("authorization_url", Text, nullable=True),
     Column("token_url", Text, nullable=True),

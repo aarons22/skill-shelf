@@ -1,4 +1,3 @@
-import os
 import secrets
 from urllib.parse import urlencode
 
@@ -108,9 +107,9 @@ def start_login(provider_slug: str, request: Request):
         raise HTTPException(status_code=404, detail="Auth provider not found")
     if provider["provider_type"] in {"local", "trusted_header", "trusted_headers"}:
         raise HTTPException(status_code=400, detail="This provider does not use redirect login")
-    secret = os.getenv(provider["client_secret_env_var"] or "")
+    secret = provider["client_secret"] or ""
     if not provider["client_id"] or not secret:
-        raise HTTPException(status_code=400, detail="Auth provider is missing client ID or configured secret env var")
+        raise HTTPException(status_code=400, detail="Auth provider is missing client ID or client secret")
     state = secrets.token_urlsafe(24)
     return_to = request.query_params.get("return_to") or "/manage"
     authorization_url = _authorization_url(provider)
@@ -140,9 +139,9 @@ def auth_callback(provider_slug: str, request: Request, code: str, state: str, r
     if not state_payload or state_payload.get("state") != state or state_payload.get("provider") != provider_slug:
         raise HTTPException(status_code=400, detail="Invalid login state")
     provider = _provider_or_404(provider_slug)
-    secret = os.getenv(provider["client_secret_env_var"] or "")
+    secret = provider["client_secret"] or ""
     if not provider["client_id"] or not secret:
-        raise HTTPException(status_code=400, detail="Auth provider is missing client ID or configured secret env var")
+        raise HTTPException(status_code=400, detail="Auth provider is missing client ID or client secret")
 
     callback_url = _callback_url(provider_slug)
     token_payload = _exchange_code(provider, code, callback_url, secret)

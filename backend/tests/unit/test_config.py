@@ -1,17 +1,9 @@
 from app.config import Settings
 
 
-def test_provider_secret_env_vars_do_not_break_settings(tmp_path):
+def test_settings_load_from_env_file(tmp_path):
     env_file = tmp_path / ".env"
-    env_file.write_text(
-        "\n".join(
-            [
-                "PORT=3000",
-                "PUBLIC_BASE_URL=http://localhost",
-                "SKILLSHELF_GITHUB_CLIENT_SECRET=provider-secret",
-            ]
-        )
-    )
+    env_file.write_text("\n".join(["PORT=3000", "PUBLIC_BASE_URL=http://localhost"]))
 
     settings = Settings(_env_file=env_file)
 
