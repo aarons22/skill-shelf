@@ -25,6 +25,14 @@ interface Plugin {
   hasSettings: boolean;
 }
 
+interface MarketplaceUser {
+  id: number;
+  email: string;
+  displayName: string;
+  provider: string;
+  marketplaceRole: "none" | "viewer" | "marketplace_maintainer" | "marketplace_admin";
+}
+
 type Tab = "plugins" | "settings";
 
 export default function MarketplaceDetail() {
@@ -32,6 +40,7 @@ export default function MarketplaceDetail() {
   const navigate = useNavigate();
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
   const [plugins, setPlugins] = useState<Plugin[]>([]);
+  const [users, setUsers] = useState<MarketplaceUser[]>([]);
   const [tab, setTab] = useState<Tab>("plugins");
   const [loading, setLoading] = useState(true);
   const [settingsForm, setSettingsForm] = useState({ displayName: "" });
@@ -55,6 +64,8 @@ export default function MarketplaceDetail() {
     const mkt = await mktRes.json();
     setMarketplace(mkt);
     setPlugins(pluginsRes.ok ? await pluginsRes.json() : []);
+    const usersRes = await fetch(`/api/marketplaces/${slug}/users`);
+    setUsers(usersRes.ok ? await usersRes.json() : []);
     setSettingsForm({ displayName: mkt.displayName });
     setVisibility(mkt.visibility);
     setLoading(false);
@@ -98,6 +109,17 @@ export default function MarketplaceDetail() {
       const data = await r.json();
       setCreatedToken(data.token);
     }
+  };
+
+  const handleUpdateUserRole = async (user: MarketplaceUser, marketplaceRole: MarketplaceUser["marketplaceRole"]) => {
+    setSettingsMsg("");
+    const r = await fetch(`/api/marketplaces/${slug}/users/${user.id}/role`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ marketplaceRole }),
+    });
+    setSettingsMsg(r.ok ? "User access updated." : "Could not update user access.");
+    if (r.ok) load();
   };
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
@@ -200,6 +222,35 @@ export default function MarketplaceDetail() {
                 {settingsMsg && <span className="text-sm text-slate-500">{settingsMsg}</span>}
               </div>
             </form>
+
+            <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
+              <h2 className="text-sm font-semibold text-slate-700">People</h2>
+              {users.length === 0 ? (
+                <p className="text-sm text-slate-500">Only marketplace admins can manage people.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {users.map((user) => (
+                    <li key={user.id} className="flex items-center justify-between gap-4 rounded-md border border-slate-200 p-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-950">{user.displayName}</p>
+                        <p className="truncate text-xs text-slate-500">{user.email} · {user.provider}</p>
+                      </div>
+                      <select
+                        value={user.marketplaceRole}
+                        onChange={(e) => handleUpdateUserRole(user, e.target.value as MarketplaceUser["marketplaceRole"])}
+                        className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+                        aria-label={`Marketplace role for ${user.displayName}`}
+                      >
+                        <option value="none">No access</option>
+                        <option value="viewer">Contributor</option>
+                        <option value="marketplace_maintainer">Maintainer</option>
+                        <option value="marketplace_admin">Admin</option>
+                      </select>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
               <h2 className="text-sm font-semibold text-slate-700">Agent read token</h2>

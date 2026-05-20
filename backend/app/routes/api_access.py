@@ -33,6 +33,8 @@ from app.schemas import (
     AuthProviderUpdate,
     CurrentUserOut,
     MarketplaceGrantOut,
+    MarketplaceUserOut,
+    MarketplaceUserRoleUpdate,
     OrganizationUserCreate,
     OrganizationUserCreatedOut,
     OrganizationUserOut,
@@ -82,6 +84,16 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                 )
             ).all()
         ] if actor.user_id is not None else []
+        marketplace_maintainer_slugs = [
+            row[0] for row in conn.execute(
+                select(marketplace_role_grants.c.marketplace_slug).where(
+                    marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                    marketplace_role_grants.c.principal_type == "user",
+                    marketplace_role_grants.c.principal_id == actor.user_id,
+                    marketplace_role_grants.c.role == "marketplace_maintainer",
+                )
+            ).all()
+        ] if actor.user_id is not None else []
         user_projection = {"id": actor.user_id, "email": actor.email, "displayName": actor.display_name, "provider": None}
         return {
             "authenticated": True,
@@ -92,6 +104,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
             "workspaceAdmin": organization_admin,
             "organizationAdmin": organization_admin,
             "marketplaceAdminSlugs": marketplace_admin_slugs,
+            "marketplaceMaintainerSlugs": marketplace_maintainer_slugs,
             "provider": None,
             "loginConfigured": login_configured,
             "bootstrapRequired": required,
@@ -281,6 +294,71 @@ def delete_marketplace_grant(
         })
 
 
+@router.get("/marketplaces/{slug}/users", response_model=list[MarketplaceUserOut])
+def list_marketplace_users(slug: str, actor: Actor | None = Depends(get_optional_actor)):
+    with get_connection() as conn:
+        _marketplace_exists_or_404(conn, slug)
+        require_marketplace_admin(conn, actor, slug)
+        rows = conn.execute(
+            select(users).where(users.c.organization_id == DEFAULT_ORGANIZATION_ID).order_by(users.c.email)
+        ).mappings().all()
+        return [_marketplace_user_out(conn, slug, row) for row in rows]
+
+
+@router.put("/marketplaces/{slug}/users/{user_id}/role", response_model=MarketplaceUserOut)
+def update_marketplace_user_role(
+    slug: str,
+    user_id: int,
+    body: MarketplaceUserRoleUpdate,
+    actor: Actor | None = Depends(get_optional_actor),
+):
+    with get_transaction() as conn:
+        _marketplace_exists_or_404(conn, slug)
+        require_marketplace_admin(conn, actor, slug)
+        row = conn.execute(select(users).where(
+            users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            users.c.id == user_id,
+        )).mappings().one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        current_role = _marketplace_role_for_user(conn, slug, user_id)
+        if current_role == body.marketplaceRole:
+            return _marketplace_user_out(conn, slug, row)
+        if current_role == "marketplace_admin" and body.marketplaceRole != "marketplace_admin":
+            admin_count = conn.execute(
+                select(marketplace_role_grants.c.principal_id).where(
+                    marketplace_role_grants.c.marketplace_slug == slug,
+                    marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                    marketplace_role_grants.c.principal_type == "user",
+                    marketplace_role_grants.c.role == "marketplace_admin",
+                )
+            ).all()
+            if len(admin_count) <= 1:
+                raise HTTPException(status_code=400, detail="At least one marketplace admin is required")
+        conn.execute(delete(marketplace_role_grants).where(
+            marketplace_role_grants.c.marketplace_slug == slug,
+            marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            marketplace_role_grants.c.principal_type == "user",
+            marketplace_role_grants.c.principal_id == user_id,
+            marketplace_role_grants.c.role.in_(["viewer", "marketplace_maintainer", "marketplace_admin"]),
+        ))
+        if body.marketplaceRole != "none":
+            conn.execute(insert(marketplace_role_grants).values(
+                organization_id=DEFAULT_ORGANIZATION_ID,
+                marketplace_slug=slug,
+                principal_type="user",
+                principal_id=user_id,
+                role=body.marketplaceRole,
+                created_at=now_ts(),
+            ))
+        record_audit(conn, actor, "marketplace_user.role_update", "marketplace", slug, {
+            "userId": user_id,
+            "marketplaceRole": body.marketplaceRole,
+        })
+        row = conn.execute(select(users).where(users.c.id == user_id)).mappings().one()
+        return _marketplace_user_out(conn, slug, row)
+
+
 @router.get("/access-tokens", response_model=list[AccessTokenOut])
 def list_access_tokens(actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
@@ -467,6 +545,34 @@ def _token_out(row) -> dict:
         "revokedAt": row["revoked_at"],
         "createdAt": row["created_at"],
     }
+
+
+def _marketplace_user_out(conn, marketplace_slug: str, row) -> dict:
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "displayName": row["display_name"],
+        "provider": row["provider"],
+        "marketplaceRole": _marketplace_role_for_user(conn, marketplace_slug, row["id"]),
+    }
+
+
+def _marketplace_role_for_user(conn, marketplace_slug: str, user_id: int) -> str:
+    roles = {
+        row[0]
+        for row in conn.execute(
+            select(marketplace_role_grants.c.role).where(
+                marketplace_role_grants.c.marketplace_slug == marketplace_slug,
+                marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                marketplace_role_grants.c.principal_type == "user",
+                marketplace_role_grants.c.principal_id == user_id,
+            )
+        ).all()
+    }
+    for role in ("marketplace_admin", "marketplace_maintainer", "viewer"):
+        if role in roles:
+            return role
+    return "none"
 
 
 def _user_out(conn, row) -> dict:

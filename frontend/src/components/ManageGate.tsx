@@ -9,7 +9,7 @@ export default function ManageGate({ children }: { children: ReactNode }) {
   if (!me.authenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
-  if (!me.organizationAdmin && me.marketplaceAdminSlugs.length === 0) {
+  if (!me.organizationAdmin && me.marketplaceAdminSlugs.length === 0 && me.marketplaceMaintainerSlugs.length === 0) {
     return <Navigate to="/" replace />;
   }
   return <>{children}</>;

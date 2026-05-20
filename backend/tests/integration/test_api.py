@@ -391,6 +391,53 @@ def test_organization_user_roles_can_be_viewed_and_changed(client):
     assert last_admin.status_code == 400
 
 
+def test_marketplace_admin_can_assign_user_marketplace_roles(client):
+    marketplace = client.post("/api/marketplaces", json={"displayName": "Access Team"})
+    assert marketplace.status_code == 201
+    slug = marketplace.json()["slug"]
+    created = client.post("/api/organization/users", json={
+        "email": "contributor@example.com",
+        "displayName": "Contributor",
+    })
+    assert created.status_code == 201
+    user = created.json()
+    users_response = client.get(f"/api/marketplaces/{slug}/users")
+    assert users_response.status_code == 200
+    listed_user = next(u for u in users_response.json() if u["id"] == user["id"])
+    assert listed_user["marketplaceRole"] == "none"
+
+    grant = client.put(f"/api/marketplaces/{slug}/users/{user['id']}/role", json={
+        "marketplaceRole": "marketplace_maintainer",
+    })
+    assert grant.status_code == 200
+    assert grant.json()["marketplaceRole"] == "marketplace_maintainer"
+
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={
+        "email": "contributor@example.com",
+        "password": user["temporaryPassword"],
+    }).status_code == 200
+    assert client.post("/auth/change-password", json={
+        "current_password": user["temporaryPassword"],
+        "new_password": "contributor-pass-1234",
+    }).status_code == 200
+    me = client.get("/api/me").json()
+    assert slug in me["marketplaceMaintainerSlugs"]
+    assert client.post(f"/api/marketplaces/{slug}/plugins", json={
+        "displayName": "Maintained Plugin",
+        "description": "Created by a maintainer",
+    }).status_code == 201
+    assert client.get(f"/api/marketplaces/{slug}/users").status_code == 403
+
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    owner = next(u for u in client.get(f"/api/marketplaces/{slug}/users").json() if u["email"] == "admin@example.com")
+    last_admin = client.put(f"/api/marketplaces/{slug}/users/{owner['id']}/role", json={
+        "marketplaceRole": "marketplace_maintainer",
+    })
+    assert last_admin.status_code == 400
+
+
 def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_mode(client):
     assert client.put("/api/organization/settings", json={
         "accessMode": "authenticated",
