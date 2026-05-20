@@ -310,6 +310,9 @@ def test_restricted_mode_filters_marketplaces_and_allows_scoped_read_tokens(clie
 
 
 def test_development_mode_allows_workspace_settings_recovery_without_headers(client):
+    me = client.get("/api/me").json()
+    assert me["authenticated"] is False
+    assert me["organizationAdmin"] is True
     assert client.put("/api/workspace/settings", json={"accessMode": "authenticated"}).status_code == 200
     r = client.put("/api/workspace/settings", json={"accessMode": "public"})
     assert r.status_code == 200

@@ -8,6 +8,7 @@ from app.db import get_connection, get_transaction
 from app.lib.auth import (
     Actor,
     DEFAULT_ORGANIZATION_ID,
+    anonymous_admin_if_public,
     ensure_workspace_settings,
     generate_token,
     get_optional_actor,
@@ -43,7 +44,13 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
             login_configured = conn.execute(
                 select(auth_providers.c.id).where(auth_providers.c.enabled == 1)
             ).one_or_none() is not None
-        return {"authenticated": False, "loginConfigured": login_configured}
+            bootstrap_admin = is_workspace_admin(conn, anonymous_admin_if_public(conn))
+        return {
+            "authenticated": False,
+            "workspaceAdmin": bootstrap_admin,
+            "organizationAdmin": bootstrap_admin,
+            "loginConfigured": login_configured,
+        }
     with get_connection() as conn:
         organization_admin = is_workspace_admin(conn, actor)
         marketplace_admin_slugs = [
