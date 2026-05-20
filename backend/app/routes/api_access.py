@@ -5,6 +5,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, insert, select, update
 
+from app.config import get_settings
 from app.db import get_connection, get_transaction
 from app.lib.auth import (
     Actor,
@@ -48,6 +49,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
         settings = ensure_organization_settings(conn)
         required = is_required(conn)
+        public_base_url = get_settings().public_base_url.rstrip("/")
         login_configured = conn.execute(
             select(auth_providers.c.id).where(auth_providers.c.enabled == 1).limit(1)
         ).first() is not None
@@ -61,6 +63,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                 "bootstrapCompleted": not required,
                 "accessMode": settings["access_mode"],
                 "marketplaceCreation": settings["marketplace_creation"],
+                "publicBaseUrl": public_base_url,
             }
         organization_admin = is_workspace_admin(conn, actor)
         credential = conn.execute(
@@ -95,6 +98,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
             "mustChangePassword": bool(credential and credential[0]),
             "accessMode": settings["access_mode"],
             "marketplaceCreation": settings["marketplace_creation"],
+            "publicBaseUrl": public_base_url,
         }
 
 
@@ -480,11 +484,15 @@ def _provider_values(raw: dict, now: int) -> dict:
 
 def _provider_out(row) -> dict:
     secret_env = row["client_secret_env_var"] or ""
+    provider_type = row["provider_type"]
+    callback_url = None
+    if provider_type not in {"local", "trusted_header", "trusted_headers"}:
+        callback_url = f"{get_settings().public_base_url.rstrip('/')}/auth/callback/{row['slug']}"
     return {
         "id": row["id"],
         "slug": row["slug"],
         "displayName": row["display_name"],
-        "providerType": row["provider_type"],
+        "providerType": provider_type,
         "enabled": bool(row["enabled"]),
         "clientId": row["client_id"],
         "clientSecretEnvVar": secret_env,
@@ -498,6 +506,7 @@ def _provider_out(row) -> dict:
         "allowedOrgs": row["allowed_orgs"],
         "allowlist": json.loads(row["allowlist_json"] or "{}"),
         "loginUrl": f"/auth/login/{row['slug']}",
+        "callbackUrl": callback_url,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }

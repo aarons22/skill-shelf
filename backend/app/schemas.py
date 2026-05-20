@@ -285,6 +285,7 @@ class CurrentUserOut(BaseModel):
     mustChangePassword: bool = False
     accessMode: Literal["public", "authenticated", "restricted"] = "public"
     marketplaceCreation: Literal["authenticated", "organization_admin"] = "authenticated"
+    publicBaseUrl: str = "http://localhost:3000"
 
 
 class WorkspaceSettingsOut(BaseModel):
@@ -387,6 +388,7 @@ class AuthProviderOut(BaseModel):
     allowedOrgs: Optional[str] = None
     allowlist: Optional[dict[str, Any]] = None
     loginUrl: str
+    callbackUrl: Optional[str] = None
     createdAt: int
     updatedAt: int
 

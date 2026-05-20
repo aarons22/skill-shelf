@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select, update
 
+from app.config import get_settings
 from app.db import get_connection, get_transaction
 from app.lib.auth import DEFAULT_ORGANIZATION_ID, sync_header_groups, upsert_user
 from app.lib.local_accounts import hash_password, verify_password
@@ -113,7 +114,7 @@ def start_login(provider_slug: str, request: Request):
     state = secrets.token_urlsafe(24)
     return_to = request.query_params.get("return_to") or "/manage"
     authorization_url = _authorization_url(provider)
-    callback_url = str(request.url_for("auth_callback", provider_slug=provider_slug))
+    callback_url = _callback_url(provider_slug)
     params = {
         "client_id": provider["client_id"],
         "redirect_uri": callback_url,
@@ -143,7 +144,7 @@ def auth_callback(provider_slug: str, request: Request, code: str, state: str, r
     if not provider["client_id"] or not secret:
         raise HTTPException(status_code=400, detail="Auth provider is missing client ID or configured secret env var")
 
-    callback_url = str(request.url_for("auth_callback", provider_slug=provider_slug))
+    callback_url = _callback_url(provider_slug)
     token_payload = _exchange_code(provider, code, callback_url, secret)
     profile = _load_profile(provider, token_payload)
     with get_transaction() as conn:
@@ -175,6 +176,10 @@ def _provider_or_404(provider_slug: str):
     if row is None:
         raise HTTPException(status_code=404, detail="Auth provider not found")
     return dict(row)
+
+
+def _callback_url(provider_slug: str) -> str:
+    return f"{get_settings().public_base_url.rstrip('/')}/auth/callback/{provider_slug}"
 
 
 def _authorization_url(provider: dict) -> str:

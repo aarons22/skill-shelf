@@ -5,6 +5,7 @@ import CopyLine from "../components/CopyLine";
 interface CurrentUser {
   authenticated: boolean;
   organizationAdmin: boolean;
+  publicBaseUrl: string;
 }
 
 interface OrganizationSettings {
@@ -29,6 +30,7 @@ interface AuthProvider {
   allowedOrgs?: string | null;
   allowlist?: Record<string, unknown> | null;
   loginUrl: string;
+  callbackUrl?: string | null;
 }
 
 interface OrgUser {
@@ -260,6 +262,11 @@ export default function OrganizationAdmin() {
                         <div>
                           <p className="font-medium text-slate-950">{provider.displayName}</p>
                           <p className="text-xs text-slate-500">{provider.providerType} · {provider.enabled ? "enabled" : "disabled"}</p>
+                          {provider.providerType === "github" && (
+                            <div className="mt-3 rounded-md bg-slate-50 p-3">
+                              <CopyLine label="GitHub callback URL" value={provider.callbackUrl || callbackUrlFor(provider.slug)} />
+                            </div>
+                          )}
                           {!provider.secretConfigured && provider.providerType !== "trusted_header" && provider.providerType !== "trusted_headers" && provider.providerType !== "local" && (
                             <p className="mt-2 text-xs text-amber-700">Missing env var: {provider.clientSecretEnvVar}</p>
                           )}
@@ -299,6 +306,9 @@ export default function OrganizationAdmin() {
                 <form onSubmit={saveProvider} className="space-y-4">
                   <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
                   <Field label="Display name" value={providerForm.displayName} onChange={(v) => setProviderForm((f) => f && ({ ...f, displayName: v }))} />
+                  {providerForm.providerType === "github" && (
+                    <GitHubSetupInstructions slug={providerForm.slug} clientSecretEnvVar={providerForm.clientSecretEnvVar} publicBaseUrl={me.publicBaseUrl} />
+                  )}
                   {(providerForm.providerType === "github" || providerForm.providerType === "oidc") && (
                     <>
                       <Field label="Client ID" value={providerForm.clientId} onChange={(v) => setProviderForm((f) => f && ({ ...f, clientId: v }))} />
@@ -385,6 +395,25 @@ export default function OrganizationAdmin() {
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+function callbackUrlFor(slug: string, publicBaseUrl = window.location.origin) {
+  const cleanSlug = slug.trim() || "github";
+  return `${publicBaseUrl.replace(/\/$/, "")}/auth/callback/${cleanSlug}`;
+}
+
+function GitHubSetupInstructions({ slug, clientSecretEnvVar, publicBaseUrl }: { slug: string; clientSecretEnvVar: string; publicBaseUrl: string }) {
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+      <h3 className="text-sm font-semibold text-amber-950">Before saving GitHub</h3>
+      <div className="mt-3 space-y-3 text-sm text-amber-950">
+        <p>Create or edit the GitHub OAuth app, then set its Authorization callback URL to this exact value.</p>
+        <CopyLine label="Authorization callback URL" value={callbackUrlFor(slug, publicBaseUrl)} />
+        <p>Set the OAuth app Client ID below. Put the Client Secret in the server environment variable named below, then restart the backend if the env var was added after startup.</p>
+        <CopyLine label="Client secret env var" value={clientSecretEnvVar || "SKILLSHELF_GITHUB_CLIENT_SECRET"} />
+      </div>
     </div>
   );
 }

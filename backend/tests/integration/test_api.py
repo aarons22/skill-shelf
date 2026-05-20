@@ -1,5 +1,6 @@
 """Integration tests for the API routes — uses FastAPI's TestClient (no real server)."""
 import os
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -346,12 +347,20 @@ def test_auth_provider_config_references_secret_env_without_storing_secret(clien
 
     providers = client.get("/api/organization/auth-providers").json()
     assert any(p["slug"] == "github-test" and p["secretConfigured"] for p in providers)
+    github_provider = next(p for p in providers if p["slug"] == "github-test")
+    assert github_provider["callbackUrl"] == "http://testserver/auth/callback/github-test"
     public_providers = client.get("/api/auth/providers").json()
     assert [p["slug"] for p in public_providers[:2]] == ["local", "github-test"]
     assert public_providers[0]["kind"] == "credentials"
     me = client.get("/api/me")
     assert me.status_code == 200
     assert me.json()["loginConfigured"] is True
+    assert me.json()["publicBaseUrl"] == "http://testserver"
+    redirect = client.get("/auth/login/github-test", follow_redirects=False)
+    assert redirect.status_code == 302
+    query = parse_qs(urlparse(redirect.headers["location"]).query)
+    assert query["client_id"] == ["abc123"]
+    assert query["redirect_uri"] == ["http://testserver/auth/callback/github-test"]
 
 
 def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_mode(client):

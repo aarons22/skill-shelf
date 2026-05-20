@@ -15,6 +15,7 @@ export interface Me {
   mustChangePassword: boolean;
   accessMode: "public" | "authenticated" | "restricted";
   marketplaceCreation: "authenticated" | "organization_admin";
+  publicBaseUrl: string;
 }
 
 interface AuthContextValue {
