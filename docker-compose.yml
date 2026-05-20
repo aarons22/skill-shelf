@@ -2,6 +2,8 @@ services:
   backend:
     build: ./backend
     env_file: .env
+    environment:
+      SKILLSHELF_DATA_DIR: /var/lib/skillshelf
     volumes:
       - skillshelf-data:/var/lib/skillshelf
     ports:

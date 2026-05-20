@@ -17,6 +17,8 @@ SKILLSHELF_DATA_DIR=/var/lib/skillshelf
 NODE_ENV=production
 ```
 
+The Compose file sets `SKILLSHELF_DATA_DIR=/var/lib/skillshelf` for the backend container even if your local `.env` uses a development path.
+
 `PUBLIC_BASE_URL` must be reachable by Claude Code and Codex clients. SkillShelf embeds it into every Claude marketplace entry as the git source URL.
 
 ## Persistent Storage

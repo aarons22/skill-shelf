@@ -22,7 +22,14 @@ export default function NewMarketplace() {
         return;
       }
       if (!r.ok) {
-        setError("Failed to create marketplace.");
+        let detail = "";
+        try {
+          const payload = await r.json();
+          detail = typeof payload.detail === "string" ? ` ${payload.detail}` : "";
+        } catch {
+          detail = "";
+        }
+        setError(`Failed to create marketplace.${detail}`);
         return;
       }
       const data = await r.json();

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     port: int = 3000
     public_base_url: str = "http://localhost:3000"
-    data_dir: str = Field("/var/lib/skillshelf", validation_alias="SKILLSHELF_DATA_DIR")
+    data_dir: str = Field("./.skillshelf-data", validation_alias="SKILLSHELF_DATA_DIR")
     node_env: str = "development"
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")

@@ -54,6 +54,8 @@ SKILLSHELF_DATA_DIR=/var/lib/skillshelf
 NODE_ENV=production
 ```
 
+When running the backend directly for local development, use a writable local path such as `SKILLSHELF_DATA_DIR=../.skillshelf-data`.
+
 See [Deployment](docs/DEPLOYMENT.md) for volume, reverse proxy, and backup notes.
 
 ## Security
