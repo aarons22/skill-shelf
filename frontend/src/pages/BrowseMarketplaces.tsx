@@ -21,20 +21,7 @@ export default function BrowseMarketplaces() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-950">SkillShelf</h1>
-            <p className="text-xs text-slate-500">Browse and install plugin marketplaces</p>
-          </div>
-          <Link to="/manage" className="text-sm text-slate-500 hover:text-slate-900">
-            Manage →
-          </Link>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl px-4 py-8">
+    <main className="mx-auto max-w-5xl px-4 py-8">
         {loading ? (
           <p className="text-sm text-slate-500">Loading...</p>
         ) : marketplaces.length === 0 ? (
@@ -79,7 +66,6 @@ export default function BrowseMarketplaces() {
             </ul>
           </>
         )}
-      </main>
-    </div>
+    </main>
   );
 }

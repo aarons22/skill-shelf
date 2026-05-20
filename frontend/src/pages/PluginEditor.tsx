@@ -138,17 +138,15 @@ export default function PluginEditor() {
   if (!marketplace) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
-          <Link to="/manage" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
+    <div>
+      <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
+        <nav className="flex items-center gap-2 text-sm">
+          <Link to="/manage" className="text-slate-500 hover:text-slate-900">Marketplaces</Link>
           <span className="text-slate-300">/</span>
-          <Link to={detailPath} className="text-sm text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
+          <Link to={detailPath} className="text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
           <span className="text-slate-300">/</span>
-          <h1 className="text-lg font-semibold text-slate-950">{isEditing ? "Edit plugin" : "Add plugin"}</h1>
-        </div>
-      </header>
-      <main className="mx-auto max-w-5xl space-y-6 px-4 py-8">
+          <span className="font-medium text-slate-950">{isEditing ? "Edit plugin" : "Add plugin"}</span>
+        </nav>
         <form onSubmit={savePlugin} className="rounded-lg border border-slate-200 bg-white p-6">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Plugin name" value={form.displayName} onChange={(value) => setForm((c) => ({ ...c, displayName: value }))} required />

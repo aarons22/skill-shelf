@@ -55,9 +55,18 @@ export default function SetupWizard() {
         {step === 1 && (
           <div className="space-y-4">
             <Field label="Organization name" value={displayName} onChange={setDisplayName} />
-            <Field label="Owner name" value={ownerName} onChange={setOwnerName} />
-            <Field label="Owner email" value={ownerEmail} onChange={setOwnerEmail} />
-            <button onClick={() => setStep(2)} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white">Continue</button>
+            <Field label="Your name" value={ownerName} onChange={setOwnerName} />
+            <Field label="Your email" value={ownerEmail} onChange={setOwnerEmail} />
+            <button
+              onClick={() => {
+                if (!email) setEmail(ownerEmail);
+                if (!adminName) setAdminName(ownerName);
+                setStep(2);
+              }}
+              className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white"
+            >
+              Continue
+            </button>
           </div>
         )}
         {step === 2 && (
@@ -73,9 +82,9 @@ export default function SetupWizard() {
         )}
         {step === 3 && (
           <div className="space-y-4">
-            <p className="text-sm font-medium text-slate-900">Local Accounts</p>
-            <Field label="Admin email" value={email} onChange={setEmail} />
-            <Field label="Admin display name" value={adminName} onChange={setAdminName} />
+            <p className="text-sm text-slate-600">Create your admin login credentials. Email and name are pre-filled from step 1.</p>
+            <Field label="Email" value={email} onChange={setEmail} />
+            <Field label="Display name" value={adminName} onChange={setAdminName} />
             <Field label="Password" value={password} onChange={setPassword} type="password" />
             <Field label="Confirm password" value={confirm} onChange={setConfirm} type="password" />
             <button onClick={() => setStep(4)} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white">Review</button>

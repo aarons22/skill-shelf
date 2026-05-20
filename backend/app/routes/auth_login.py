@@ -153,11 +153,10 @@ def auth_callback(provider_slug: str, request: Request, code: str, state: str, r
 
 
 @router.post("/auth/logout")
-def logout():
-    response = RedirectResponse("/", status_code=302)
+def logout(response: Response):
     response.delete_cookie(COOKIE_NAME)
     response.delete_cookie(STATE_COOKIE_NAME)
-    return response
+    return {"ok": True}
 
 
 def _provider_or_404(provider_slug: str):

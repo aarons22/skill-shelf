@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function NewMarketplace() {
   const navigate = useNavigate();
@@ -40,18 +40,13 @@ export default function NewMarketplace() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
-          <button onClick={() => navigate("/manage")} className="text-gray-500 hover:text-gray-900 text-sm">
-            ← Marketplaces
-          </button>
-          <span className="text-gray-300">/</span>
-          <h1 className="text-lg font-semibold text-gray-900">New marketplace</h1>
-        </div>
-      </header>
-
-      <main className="max-w-lg mx-auto px-4 py-10">
+    <div>
+      <main className="mx-auto max-w-lg px-4 py-6">
+        <nav className="mb-4 flex items-center gap-2 text-sm">
+          <Link to="/manage" className="text-slate-500 hover:text-slate-900">Marketplaces</Link>
+          <span className="text-slate-300">/</span>
+          <span className="font-medium text-slate-950">New marketplace</span>
+        </nav>
         <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-gray-200 p-6 space-y-5">
           <Field
             label="Marketplace name"

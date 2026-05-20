@@ -159,18 +159,10 @@ export default function OrganizationAdmin() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-950">Organization settings</h1>
-            <p className="text-xs text-slate-500">Access, login, and tenant-wide controls</p>
-          </div>
-          <Link to="/manage" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
-        </div>
-      </header>
-
+    <div>
       <main className="mx-auto max-w-5xl px-4 py-6">
+        <h1 className="mb-1 text-lg font-semibold text-slate-950">Organization settings</h1>
+        <p className="mb-6 text-xs text-slate-500">Access, login, and tenant-wide controls</p>
         <div className="mb-6 flex gap-6 border-b border-slate-200">
           {(["access", "auth", "users", "tokens"] as Tab[]).map((item) => (
             <button

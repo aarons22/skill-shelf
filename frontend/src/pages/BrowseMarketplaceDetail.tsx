@@ -62,16 +62,13 @@ export default function BrowseMarketplaceDetail() {
   const gitRepoUrl = `${window.location.origin}/m/${slug}/git/repo.git`;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
-          <Link to="/" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
-          <span className="text-slate-300">/</span>
-          <h1 className="text-lg font-semibold text-slate-950">{marketplace.displayName}</h1>
-        </div>
-      </header>
-
+    <div>
       <main className="mx-auto max-w-5xl px-4 py-6">
+        <nav className="mb-4 flex items-center gap-2 text-sm">
+          <Link to="/" className="text-slate-500 hover:text-slate-900">Marketplaces</Link>
+          <span className="text-slate-300">/</span>
+          <span className="font-medium text-slate-950">{marketplace.displayName}</span>
+        </nav>
         <div className="mb-6 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-4">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm text-slate-700">

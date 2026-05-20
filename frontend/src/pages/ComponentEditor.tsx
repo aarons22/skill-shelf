@@ -109,21 +109,19 @@ export default function ComponentEditor() {
   const sectionLabel = SECTION_LABELS[componentType as ComponentType];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-4 py-4">
-          <Link to="/manage" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
+    <div>
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        <nav className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <Link to="/manage" className="text-slate-500 hover:text-slate-900">Marketplaces</Link>
           <span className="text-slate-300">/</span>
-          <Link to={`/manage/marketplaces/${slug}`} className="text-sm text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
+          <Link to={`/manage/marketplaces/${slug}`} className="text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
           <span className="text-slate-300">/</span>
-          <Link to={pluginPath} className="text-sm text-slate-500 hover:text-slate-900">{plugin.displayName}</Link>
+          <Link to={pluginPath} className="text-slate-500 hover:text-slate-900">{plugin.displayName}</Link>
           <span className="text-slate-300">/</span>
-          <Link to={pluginPath} className="text-sm text-slate-500 hover:text-slate-900">{sectionLabel}</Link>
+          <Link to={pluginPath} className="text-slate-500 hover:text-slate-900">{sectionLabel}</Link>
           <span className="text-slate-300">/</span>
-          <h1 className="text-lg font-semibold text-slate-950">{formState.displayName}</h1>
-        </div>
-      </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">
+          <span className="font-medium text-slate-950">{formState.displayName}</span>
+        </nav>
         <form onSubmit={save} className="rounded-lg border border-slate-200 bg-white p-6">
           <div className="grid gap-4 md:grid-cols-2">
             {renderFields(formState, setFormState as (updater: (prev: FormState) => FormState) => void)}
