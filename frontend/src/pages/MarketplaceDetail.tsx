@@ -164,11 +164,6 @@ export default function MarketplaceDetail() {
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
   if (!marketplace) return null;
 
-  const origin = window.location.origin;
-  const connectSnippet = `/plugin marketplace add ${origin}/m/${slug}`;
-  const gitRepoUrl = `${origin}/m/${slug}/git/repo.git`;
-  const copilotSnippet = `copilot plugin marketplace add ${gitRepoUrl}`;
-
   return (
     <div>
       <main className="mx-auto max-w-5xl px-4 py-6">
@@ -177,11 +172,6 @@ export default function MarketplaceDetail() {
           <span className="text-slate-300">/</span>
           <span className="font-medium text-slate-950">{marketplace.displayName}</span>
         </nav>
-        <div className="mb-6 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <CopyLine label="Add to Claude Code" value={connectSnippet} />
-          <CopyLine label="Add to GitHub Copilot" value={copilotSnippet} />
-          <CopyLine label="Codex-compatible git repo" value={gitRepoUrl} />
-        </div>
 
         <div className="mb-6 flex gap-6 border-b border-slate-200">
           {(["plugins", ...(isMarketplaceAdmin ? ["settings"] : [])] as Tab[]).map((item) => (
@@ -245,17 +235,17 @@ export default function MarketplaceDetail() {
             <form onSubmit={handleSaveSettings} className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
               <h2 className="text-sm font-semibold text-slate-700">Marketplace details</h2>
               <SettingsField label="Name" value={settingsForm.displayName} onChange={(v) => setSettingsForm((f) => ({ ...f, displayName: v }))} />
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Visibility</span>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Visibility</label>
                 <select
                   value={visibility}
                   onChange={(e) => setVisibility(e.target.value as "workspace" | "restricted")}
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
                 >
-                  <option value="workspace">Workspace</option>
-                  <option value="restricted">Restricted</option>
+                  <option value="workspace">Workspace — visible to all signed-in users</option>
+                  <option value="restricted">Restricted — requires explicit grant to read</option>
                 </select>
-              </label>
+              </div>
               <div className="flex items-center gap-3">
                 <button type="submit" disabled={settingsSaving} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">
                   {settingsSaving ? "Saving..." : "Save"}
@@ -338,7 +328,10 @@ export default function MarketplaceDetail() {
             </div>
 
             <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="text-sm font-semibold text-slate-700">Agent read token</h2>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-700">Read-only access token</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Generated tokens let agents clone this marketplace without a user account.</p>
+              </div>
               <SettingsField label="Token name" value={tokenName} onChange={setTokenName} />
               <button type="button" onClick={handleCreateToken} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
                 Create token
