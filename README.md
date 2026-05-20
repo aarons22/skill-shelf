@@ -1,6 +1,6 @@
 # SkillShelf
 
-SkillShelf is a self-hostable web app for creating and managing Claude Code and Codex plugin marketplaces. Teams create a marketplace, add installable plugins, attach guided components, and share one marketplace URL without asking plugin authors to touch git.
+SkillShelf is a self-hostable web app for creating and managing plugin marketplaces for Claude Code, GitHub Copilot, and Codex. Teams create a marketplace, add installable plugins, attach guided components, and share one URL without asking plugin authors to touch git.
 
 <p align="center">
   <img src="docs/assets/screenshot-list.png" alt="SkillShelf showing two team marketplaces — Engineering Tools and Finance Team Skills" width="900" />
@@ -32,19 +32,39 @@ Set `PUBLIC_BASE_URL` in `.env` to the URL your AI coding agents can reach. Skil
 
 ## Basic Use
 
-1. Open SkillShelf and go to `/manage`.
+1. Open SkillShelf. On a fresh install, complete the `/setup` wizard — the first user becomes organization admin.
 2. Create a marketplace for a team or workflow area.
 3. Create a plugin inside that marketplace.
-4. Add skills, hooks, agents, MCP servers, commands, monitors, or default settings to the plugin.
-5. Copy the Claude Code connect snippet from the marketplace page:
+4. Add components to the plugin: skills, hooks, agents, MCP servers, commands, monitors, or default settings.
+5. Copy the connect snippet for your AI coding agent from the marketplace page.
 
+**Claude Code**
 ```text
 /plugin marketplace add https://your-server.example.com/m/<marketplace-slug>
 ```
 
-6. Install plugins from that marketplace in Claude Code.
+**GitHub Copilot**
+```text
+copilot plugin marketplace add https://your-server.example.com/m/<marketplace-slug>/git/repo.git
+```
 
-Skill-bearing plugins also include Codex-compatible metadata in the generated git repo. Claude-only components such as hooks, agents, MCP servers, commands, monitors, and settings are rendered for Claude Code and are not represented in Codex metadata.
+**Codex**
+
+Add the marketplace URL to your Codex configuration. The repo at `/m/<marketplace-slug>/git/repo.git` contains Codex-compatible metadata for all skill-bearing plugins.
+
+6. Install individual plugins from the marketplace inside your agent.
+
+### Component compatibility
+
+| Component | Claude Code | GitHub Copilot | Codex |
+|---|:---:|:---:|:---:|
+| Skills | ✓ | ✓ | ✓ |
+| Agents | ✓ | ✓ | — |
+| Hooks | ✓ | ✓ | — |
+| MCP Servers | ✓ | ✓ | — |
+| Commands | ✓ | — | — |
+| Monitors | ✓ | — | — |
+| Settings | ✓ | — | — |
 
 ## Deployment
 
@@ -77,7 +97,7 @@ SkillShelf is currently intended for trusted internal networks and trusted plugi
 - Cloud deployment hardening: backups, restore docs, health checks, metrics, and managed storage options.
 - Claude Code client acceptance testing beyond the automated verification harness.
 
-SkillShelf is not a replacement for Claude skills or MCP servers. It is the management and distribution layer that packages those artifacts into Claude/Codex-compatible plugin marketplaces.
+SkillShelf is not a replacement for Claude skills or MCP servers. It is the management and distribution layer that packages those artifacts into Claude Code-, GitHub Copilot-, and Codex-compatible plugin marketplaces.
 
 ## Development
 
