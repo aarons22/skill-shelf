@@ -26,6 +26,27 @@ http://127.0.0.1:5173/
 
 The dev server proxies `/api/*` and `/m/*` to the backend on port `3000`.
 
+## Docker Hot Reload
+
+To run both services in Docker with local source mounts and hot reload:
+
+```sh
+cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+Open the Vite dev server at:
+
+```text
+http://127.0.0.1/
+```
+
+The dev overlay runs `uvicorn --reload` for backend changes and Vite HMR for frontend changes. It keeps the production compose file unchanged, so production deployments can continue using:
+
+```sh
+docker compose -f docker-compose.yml up --build
+```
+
 ## Verification
 
 Run these before considering changes done:
