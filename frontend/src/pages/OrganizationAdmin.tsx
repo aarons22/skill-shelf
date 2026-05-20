@@ -42,6 +42,15 @@ interface OrgUser {
   mustChangePassword: boolean;
 }
 
+interface AccessToken {
+  id: number;
+  name: string;
+  scope: string;
+  marketplaceSlug: string | null;
+  createdAt: number;
+  revokedAt: number | null;
+}
+
 type Tab = "access" | "auth" | "users" | "tokens";
 
 function emptyProviderFor(type: "github" | "oidc" | "trusted_header") {
@@ -110,6 +119,9 @@ export default function OrganizationAdmin() {
   const [message, setMessage] = useState("");
   const [providerForm, setProviderForm] = useState<ProviderFormState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tokens, setTokens] = useState<AccessToken[]>([]);
+  const [newTokenName, setNewTokenName] = useState("CI read access");
+  const [createdToken, setCreatedToken] = useState("");
 
   const tab: Tab = (() => {
     if (location.pathname.endsWith("/auth")) return "auth";
@@ -127,14 +139,16 @@ export default function OrganizationAdmin() {
       setLoading(false);
       return;
     }
-    const [settingsRes, providersRes, usersRes] = await Promise.all([
+    const [settingsRes, providersRes, usersRes, tokensRes] = await Promise.all([
       fetch("/api/organization/settings"),
       fetch("/api/organization/auth-providers"),
       fetch("/api/organization/users"),
+      fetch("/api/access-tokens"),
     ]);
     setSettings(await settingsRes.json());
     setProviders(providersRes.ok ? await providersRes.json() : []);
     setUsers(usersRes.ok ? await usersRes.json() : []);
+    setTokens(tokensRes.ok ? await tokensRes.json() : []);
     setLoading(false);
   };
 
@@ -195,6 +209,27 @@ export default function OrganizationAdmin() {
     });
     setMessage(r.ok ? "User role updated." : "Could not update user role.");
     if (r.ok) load();
+  };
+
+  const createToken = async () => {
+    setCreatedToken("");
+    const r = await fetch("/api/access-tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newTokenName }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      setCreatedToken(data.token);
+      setNewTokenName("CI read access");
+      load();
+    }
+  };
+
+  const revokeToken = async (tokenId: number) => {
+    if (!confirm("Revoke this token? Agents using it will lose access immediately.")) return;
+    await fetch(`/api/access-tokens/${tokenId}`, { method: "DELETE" });
+    load();
   };
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
@@ -416,11 +451,41 @@ export default function OrganizationAdmin() {
         )}
 
         {tab === "tokens" && (
-          <section className="max-w-2xl rounded-lg border border-slate-200 bg-white p-6">
-            <h2 className="mb-3 text-sm font-semibold text-slate-800">Global read tokens</h2>
-            <p className="mb-4 text-sm text-slate-500">Global tokens remain available through the API for organization admins. Marketplace-scoped read tokens live in each marketplace settings page.</p>
-            <CopyLine label="Token API" value="/api/access-tokens" />
-          </section>
+          <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+            <section className="rounded-lg border border-slate-200 bg-white p-6">
+              <h2 className="mb-1 text-sm font-semibold text-slate-800">Global read tokens</h2>
+              <p className="mb-4 text-xs text-slate-500">Global tokens grant read access to all workspace-visible marketplaces. Marketplace-scoped tokens live in each marketplace's Settings → Tokens page.</p>
+              {tokens.filter((t) => !t.revokedAt).length === 0 ? (
+                <p className="text-sm text-slate-500">No active tokens.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {tokens.filter((t) => !t.revokedAt).map((token) => (
+                    <li key={token.id} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 p-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-950">{token.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {token.marketplaceSlug ? `Scoped to ${token.marketplaceSlug}` : "All marketplaces"} · Created {new Date(token.createdAt * 1000).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => revokeToken(token.id)} className="shrink-0 text-sm text-red-600 hover:text-red-800">
+                        Revoke
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            <section className="rounded-lg border border-slate-200 bg-white p-6">
+              <h2 className="mb-4 text-sm font-semibold text-slate-800">Create token</h2>
+              <div className="space-y-3">
+                <Field label="Token name" value={newTokenName} onChange={setNewTokenName} />
+                <button type="button" onClick={createToken} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+                  Create token
+                </button>
+                {createdToken && <CopyLine label="Access token" value={createdToken} />}
+              </div>
+            </section>
+          </div>
         )}
       </main>
     </div>
