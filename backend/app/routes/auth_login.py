@@ -18,6 +18,10 @@ from app.schemas import ChangePasswordIn, LoginLocalIn, PublicAuthProviderOut
 router = APIRouter(tags=["auth"])
 
 
+def _provider_sort_key(row) -> tuple[int, str]:
+    return (0 if row["provider_type"] == "local" else 1, row["display_name"].lower())
+
+
 @router.get("/auth/login")
 def login_index():
     with get_connection() as conn:
@@ -25,8 +29,9 @@ def login_index():
             select(auth_providers).where(
                 auth_providers.c.organization_id == DEFAULT_ORGANIZATION_ID,
                 auth_providers.c.enabled == 1,
-            ).order_by(auth_providers.c.display_name)
+            )
         ).mappings().all()
+    rows = sorted(rows, key=_provider_sort_key)
     if len(rows) == 1 and rows[0]["provider_type"] not in {"local", "trusted_header", "trusted_headers"}:
         return RedirectResponse(f"/auth/login/{rows[0]['slug']}", status_code=302)
     return {
@@ -44,9 +49,9 @@ def public_auth_providers():
             select(auth_providers).where(
                 auth_providers.c.organization_id == DEFAULT_ORGANIZATION_ID,
                 auth_providers.c.enabled == 1,
-            ).order_by(auth_providers.c.display_name)
+            )
         ).mappings().all()
-    return [_public_provider(row) for row in rows]
+    return [_public_provider(row) for row in sorted(rows, key=_provider_sort_key)]
 
 
 @router.post("/auth/login/local")

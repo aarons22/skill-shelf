@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     node_env: str = "development"
     session_secret: str = Field("dev-session-secret-change-me", validation_alias="SKILLSHELF_SESSION_SECRET")
 
-    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def marketplaces_dir(self) -> str:

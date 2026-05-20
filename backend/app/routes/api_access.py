@@ -49,8 +49,8 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
         settings = ensure_organization_settings(conn)
         required = is_required(conn)
         login_configured = conn.execute(
-            select(auth_providers.c.id).where(auth_providers.c.enabled == 1)
-        ).one_or_none() is not None
+            select(auth_providers.c.id).where(auth_providers.c.enabled == 1).limit(1)
+        ).first() is not None
         if actor is None:
             return {
                 "authenticated": False,
