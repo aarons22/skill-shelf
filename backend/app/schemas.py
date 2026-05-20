@@ -319,6 +319,7 @@ class MarketplaceUserOut(BaseModel):
     displayName: str
     provider: str
     marketplaceRole: Literal["none", "viewer", "marketplace_maintainer", "marketplace_admin"] = "none"
+    isOwner: bool = False
 
 
 class MarketplaceUserRoleUpdate(BaseModel):

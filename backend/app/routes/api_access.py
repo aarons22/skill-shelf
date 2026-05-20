@@ -2,8 +2,8 @@ import os
 import json
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, insert, select, update
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete, insert, or_, select, update
 
 from app.config import get_settings
 from app.db import get_connection, get_transaction
@@ -299,10 +299,43 @@ def list_marketplace_users(slug: str, actor: Actor | None = Depends(get_optional
     with get_connection() as conn:
         _marketplace_exists_or_404(conn, slug)
         require_marketplace_admin(conn, actor, slug)
+        marketplace = _marketplace_or_404(conn, slug)
         rows = conn.execute(
             select(users).where(users.c.organization_id == DEFAULT_ORGANIZATION_ID).order_by(users.c.email)
         ).mappings().all()
-        return [_marketplace_user_out(conn, slug, row) for row in rows]
+        result = []
+        for row in rows:
+            out = _marketplace_user_out(conn, slug, row, marketplace)
+            if out["isOwner"] or out["marketplaceRole"] != "none":
+                result.append(out)
+        return result
+
+
+@router.get("/marketplaces/{slug}/user-search", response_model=list[MarketplaceUserOut])
+def search_marketplace_users(
+    slug: str,
+    q: str = Query(default="", max_length=120),
+    actor: Actor | None = Depends(get_optional_actor),
+):
+    query = q.strip()
+    if not query:
+        return []
+    with get_connection() as conn:
+        _marketplace_exists_or_404(conn, slug)
+        require_marketplace_admin(conn, actor, slug)
+        marketplace = _marketplace_or_404(conn, slug)
+        rows = conn.execute(
+            select(users).where(
+                users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                or_(users.c.email.ilike(f"%{query}%"), users.c.display_name.ilike(f"%{query}%")),
+            ).order_by(users.c.email).limit(10)
+        ).mappings().all()
+        result = []
+        for row in rows:
+            out = _marketplace_user_out(conn, slug, row, marketplace)
+            if not out["isOwner"] and out["marketplaceRole"] == "none":
+                result.append(out)
+        return result
 
 
 @router.put("/marketplaces/{slug}/users/{user_id}/role", response_model=MarketplaceUserOut)
@@ -313,7 +346,7 @@ def update_marketplace_user_role(
     actor: Actor | None = Depends(get_optional_actor),
 ):
     with get_transaction() as conn:
-        _marketplace_exists_or_404(conn, slug)
+        marketplace = _marketplace_or_404(conn, slug)
         require_marketplace_admin(conn, actor, slug)
         row = conn.execute(select(users).where(
             users.c.organization_id == DEFAULT_ORGANIZATION_ID,
@@ -321,9 +354,11 @@ def update_marketplace_user_role(
         )).mappings().one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="User not found")
+        if marketplace["created_by_user_id"] == user_id:
+            raise HTTPException(status_code=400, detail="Marketplace owner access cannot be changed")
         current_role = _marketplace_role_for_user(conn, slug, user_id)
         if current_role == body.marketplaceRole:
-            return _marketplace_user_out(conn, slug, row)
+            return _marketplace_user_out(conn, slug, row, marketplace)
         if current_role == "marketplace_admin" and body.marketplaceRole != "marketplace_admin":
             admin_count = conn.execute(
                 select(marketplace_role_grants.c.principal_id).where(
@@ -356,7 +391,7 @@ def update_marketplace_user_role(
             "marketplaceRole": body.marketplaceRole,
         })
         row = conn.execute(select(users).where(users.c.id == user_id)).mappings().one()
-        return _marketplace_user_out(conn, slug, row)
+        return _marketplace_user_out(conn, slug, row, marketplace)
 
 
 @router.get("/access-tokens", response_model=list[AccessTokenOut])
@@ -525,6 +560,13 @@ def _marketplace_exists_or_404(conn, slug: str) -> None:
         raise HTTPException(status_code=404, detail="Marketplace not found")
 
 
+def _marketplace_or_404(conn, slug: str):
+    row = conn.execute(select(marketplaces).where(marketplaces.c.slug == slug)).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Marketplace not found")
+    return row
+
+
 def _grant_out(row) -> dict:
     return {
         "marketplaceSlug": row["marketplace_slug"],
@@ -547,13 +589,16 @@ def _token_out(row) -> dict:
     }
 
 
-def _marketplace_user_out(conn, marketplace_slug: str, row) -> dict:
+def _marketplace_user_out(conn, marketplace_slug: str, row, marketplace=None) -> dict:
+    if marketplace is None:
+        marketplace = _marketplace_or_404(conn, marketplace_slug)
     return {
         "id": row["id"],
         "email": row["email"],
         "displayName": row["display_name"],
         "provider": row["provider"],
         "marketplaceRole": _marketplace_role_for_user(conn, marketplace_slug, row["id"]),
+        "isOwner": marketplace["created_by_user_id"] == row["id"],
     }
 
 

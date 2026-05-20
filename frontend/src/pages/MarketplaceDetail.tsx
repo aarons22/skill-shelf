@@ -31,6 +31,7 @@ interface MarketplaceUser {
   displayName: string;
   provider: string;
   marketplaceRole: "none" | "viewer" | "marketplace_maintainer" | "marketplace_admin";
+  isOwner: boolean;
 }
 
 type Tab = "plugins" | "settings";
@@ -50,6 +51,9 @@ export default function MarketplaceDetail() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [tokenName, setTokenName] = useState("Claude read access");
   const [createdToken, setCreatedToken] = useState("");
+  const [userSearch, setUserSearch] = useState("");
+  const [userSearchResults, setUserSearchResults] = useState<MarketplaceUser[]>([]);
+  const [newUserRole, setNewUserRole] = useState<MarketplaceUser["marketplaceRole"]>("viewer");
 
   const load = async () => {
     setLoading(true);
@@ -72,6 +76,19 @@ export default function MarketplaceDetail() {
   };
 
   useEffect(() => { load(); }, [slug]);
+
+  useEffect(() => {
+    const query = userSearch.trim();
+    if (!slug || query.length === 0) {
+      setUserSearchResults([]);
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      const res = await fetch(`/api/marketplaces/${slug}/user-search?q=${encodeURIComponent(query)}`);
+      setUserSearchResults(res.ok ? await res.json() : []);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [slug, userSearch]);
 
   const handleDeletePlugin = async (pluginSlug: string) => {
     if (!confirm(`Delete plugin "${pluginSlug}"?`)) return;
@@ -120,6 +137,13 @@ export default function MarketplaceDetail() {
     });
     setSettingsMsg(r.ok ? "User access updated." : "Could not update user access.");
     if (r.ok) load();
+  };
+
+  const handleAddUser = async (user: MarketplaceUser) => {
+    await handleUpdateUserRole(user, newUserRole);
+    setUserSearch("");
+    setUserSearchResults([]);
+    setNewUserRole("viewer");
   };
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
@@ -225,27 +249,70 @@ export default function MarketplaceDetail() {
 
             <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
               <h2 className="text-sm font-semibold text-slate-700">People</h2>
+              <div className="space-y-3 rounded-md border border-slate-200 p-3">
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <SettingsField label="Search users" value={userSearch} onChange={setUserSearch} />
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-slate-700">Role</span>
+                    <select
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value as MarketplaceUser["marketplaceRole"])}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
+                    >
+                      <option value="viewer">Contributor</option>
+                      <option value="marketplace_maintainer">Maintainer</option>
+                      <option value="marketplace_admin">Admin</option>
+                    </select>
+                  </label>
+                </div>
+                {userSearch.trim() && (
+                  <div className="overflow-hidden rounded-md border border-slate-200">
+                    {userSearchResults.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-slate-500">No available users found.</p>
+                    ) : (
+                      userSearchResults.map((user) => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => handleAddUser(user)}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium text-slate-900">{user.displayName}</span>
+                            <span className="block truncate text-xs text-slate-500">{user.email}</span>
+                          </span>
+                          <span className="text-xs font-medium text-slate-600">Add</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
               {users.length === 0 ? (
-                <p className="text-sm text-slate-500">Only marketplace admins can manage people.</p>
+                <p className="text-sm text-slate-500">No marketplace people have been assigned yet.</p>
               ) : (
                 <ul className="space-y-3">
                   {users.map((user) => (
                     <li key={user.id} className="flex items-center justify-between gap-4 rounded-md border border-slate-200 p-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-slate-950">{user.displayName}</p>
-                        <p className="truncate text-xs text-slate-500">{user.email} · {user.provider}</p>
+                        <p className="truncate text-xs text-slate-500">{user.email} · {user.provider}{user.isOwner ? " · owner" : ""}</p>
                       </div>
-                      <select
-                        value={user.marketplaceRole}
-                        onChange={(e) => handleUpdateUserRole(user, e.target.value as MarketplaceUser["marketplaceRole"])}
-                        className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
-                        aria-label={`Marketplace role for ${user.displayName}`}
-                      >
-                        <option value="none">No access</option>
-                        <option value="viewer">Contributor</option>
-                        <option value="marketplace_maintainer">Maintainer</option>
-                        <option value="marketplace_admin">Admin</option>
-                      </select>
+                      {user.isOwner ? (
+                        <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-700">Owner</span>
+                      ) : (
+                        <select
+                          value={user.marketplaceRole}
+                          onChange={(e) => handleUpdateUserRole(user, e.target.value as MarketplaceUser["marketplaceRole"])}
+                          className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+                          aria-label={`Marketplace role for ${user.displayName}`}
+                        >
+                          <option value="none">No access</option>
+                          <option value="viewer">Contributor</option>
+                          <option value="marketplace_maintainer">Maintainer</option>
+                          <option value="marketplace_admin">Admin</option>
+                        </select>
+                      )}
                     </li>
                   ))}
                 </ul>
