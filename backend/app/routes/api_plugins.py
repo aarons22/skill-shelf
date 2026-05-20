@@ -149,8 +149,6 @@ def _sync_plugin(
     marketplace_slug: str,
     plugin_slug: str,
     commit_message: str,
-    author_name: str,
-    author_email: str,
     extra_files: dict[str, str | None] | None = None,
 ) -> str:
     files = write_path.build_plugin_files(marketplace_slug, plugin_slug, conn)
@@ -160,8 +158,6 @@ def _sync_plugin(
         marketplace_slug,
         conn,
         commit_message=commit_message,
-        author_name=author_name,
-        author_email=author_email,
         extra_files=files,
     )
     conn.execute(
@@ -211,14 +207,7 @@ def create_plugin(marketplace_slug: str, body: PluginCreate, request: Request):
                 created_at=now,
                 updated_at=now,
             ))
-            _sync_plugin(
-                conn,
-                marketplace_slug,
-                plugin_slug,
-                f"Add plugin: {plugin_slug}",
-                mkt["owner_name"],
-                mkt["owner_email"],
-            )
+            _sync_plugin(conn, marketplace_slug, plugin_slug, f"Add plugin: {plugin_slug}")
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise
@@ -261,7 +250,7 @@ def update_plugin(marketplace_slug: str, plugin_slug: str, body: PluginUpdate, r
                     plugins.c.slug == plugin_slug,
                 ).values(**updates)
             )
-            _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update plugin: {plugin_slug}", mkt["owner_name"], mkt["owner_email"])
+            _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update plugin: {plugin_slug}")
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise
@@ -288,8 +277,6 @@ def delete_plugin(marketplace_slug: str, plugin_slug: str, request: Request):
                 marketplace_slug,
                 conn,
                 commit_message=f"Delete plugin: {plugin_slug}",
-                author_name=mkt["owner_name"],
-                author_email=mkt["owner_email"],
                 extra_files=removal,
             )
             record_audit(conn, _actor(request), "plugin.delete", "plugin", f"{marketplace_slug}/{plugin_slug}")
@@ -349,7 +336,7 @@ def create_plugin_skill(marketplace_slug: str, plugin_slug: str, body: SkillCrea
                     plugins.c.slug == plugin_slug,
                 ).values(version=new_version, updated_at=now)
             )
-            sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Add skill: {skill_slug}", mkt["owner_name"], mkt["owner_email"])
+            sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Add skill: {skill_slug}")
             conn.execute(
                 update(skills).where(
                     skills.c.marketplace_slug == marketplace_slug,
@@ -430,7 +417,7 @@ def update_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str
                     plugins.c.slug == plugin_slug,
                 ).values(version=_bump_version(plugin["version"]), updated_at=now)
             )
-            sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update skill: {skill_slug}", mkt["owner_name"], mkt["owner_email"])
+            sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update skill: {skill_slug}")
             conn.execute(
                 update(skills).where(
                     skills.c.marketplace_slug == marketplace_slug,
@@ -484,8 +471,6 @@ def delete_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str
                 marketplace_slug,
                 plugin_slug,
                 f"Delete skill: {skill_slug}",
-                mkt["owner_name"],
-                mkt["owner_email"],
                 extra_files={f"plugins/{plugin_slug}/skills/{skill_slug}/SKILL.md": None},
             )
     except Exception:
@@ -764,7 +749,7 @@ def put_settings(marketplace_slug: str, plugin_slug: str, body: PluginSettingsIn
                 plugins.c.marketplace_slug == marketplace_slug,
                 plugins.c.slug == plugin_slug,
             ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, "Update plugin settings", mkt["owner_name"], mkt["owner_email"])
+            _sync_plugin(conn, marketplace_slug, plugin_slug, "Update plugin settings")
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise
@@ -802,7 +787,7 @@ def _insert_component(marketplace_slug: str, plugin_slug: str, slug: str, table,
                 plugins.c.marketplace_slug == marketplace_slug,
                 plugins.c.slug == plugin_slug,
             ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, message, mkt["owner_name"], mkt["owner_email"])
+            _sync_plugin(conn, marketplace_slug, plugin_slug, message)
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise
@@ -847,7 +832,7 @@ def _delete_component(
                 plugins.c.marketplace_slug == marketplace_slug,
                 plugins.c.slug == plugin_slug,
             ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, message, mkt["owner_name"], mkt["owner_email"], extra_files=extra_files)
+            _sync_plugin(conn, marketplace_slug, plugin_slug, message, extra_files=extra_files)
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise
@@ -880,7 +865,7 @@ def _update_component(marketplace_slug: str, plugin_slug: str, component_slug: s
                 plugins.c.marketplace_slug == marketplace_slug,
                 plugins.c.slug == plugin_slug,
             ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, message, mkt["owner_name"], mkt["owner_email"])
+            _sync_plugin(conn, marketplace_slug, plugin_slug, message)
     except Exception:
         git_store.reset_working_tree(marketplace_slug)
         raise

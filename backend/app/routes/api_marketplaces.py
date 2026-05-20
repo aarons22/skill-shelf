@@ -18,7 +18,7 @@ from app.lib.auth import (
 )
 from app.lib import git_store, write_path
 from app.lib.slug import make_slug
-from app.models import marketplace_role_grants, marketplaces, plugins, skills
+from app.models import marketplace_role_grants, marketplaces, plugins, skills, users
 from app.schemas import MarketplaceCreate, MarketplaceOut, MarketplaceUpdate
 
 router = APIRouter(prefix="/api/marketplaces", tags=["marketplaces"])
@@ -28,8 +28,8 @@ def _row_to_out(row, skill_count: int | None = None) -> dict[str, Any]:
     return {
         "slug": row["slug"],
         "displayName": row["display_name"],
-        "ownerName": row["owner_name"],
-        "ownerEmail": row["owner_email"],
+        "ownerName": row["owner_display_name"] or "",
+        "ownerEmail": row["owner_email"] or "",
         "visibility": row["visibility"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
@@ -38,13 +38,26 @@ def _row_to_out(row, skill_count: int | None = None) -> dict[str, Any]:
     }
 
 
+def _marketplace_with_owner(conn, where_clause=None):
+    """Select marketplaces joined to their owner user."""
+    stmt = (
+        select(
+            marketplaces,
+            users.c.display_name.label("owner_display_name"),
+            users.c.email.label("owner_email"),
+        )
+        .select_from(marketplaces.outerjoin(users, marketplaces.c.created_by_user_id == users.c.id))
+    )
+    if where_clause is not None:
+        stmt = stmt.where(where_clause)
+    return stmt
+
+
 @router.get("", response_model=list[MarketplaceOut])
 def list_marketplaces(request: Request, actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
-        stmt = select(marketplaces).order_by(marketplaces.c.display_name)
         condition = visible_marketplace_condition(conn, actor)
-        if condition is not None:
-            stmt = stmt.where(condition)
+        stmt = _marketplace_with_owner(conn, condition).order_by(marketplaces.c.display_name)
         rows = conn.execute(stmt).mappings().all()
         result = []
         for row in rows:
@@ -64,7 +77,7 @@ def list_marketplaces(request: Request, actor: Actor | None = Depends(get_option
 def get_marketplace(slug: str, request: Request, actor: Actor | None = Depends(get_optional_actor)):
     with get_connection() as conn:
         row = conn.execute(
-            select(marketplaces).where(marketplaces.c.slug == slug)
+            _marketplace_with_owner(conn, marketplaces.c.slug == slug)
         ).mappings().one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="Marketplace not found")
@@ -97,6 +110,9 @@ def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor |
     if existing is not None:
         raise HTTPException(status_code=409, detail=f"Slug '{slug}' already exists")
 
+    if actor is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     # Create git repo before transaction (easier to clean up on failure)
     git_store.create_repo(slug)
 
@@ -106,13 +122,12 @@ def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor |
                 organization_id=DEFAULT_ORGANIZATION_ID,
                 slug=slug,
                 display_name=body.displayName,
-                owner_name=body.ownerName,
-                owner_email=body.ownerEmail,
+                created_by_user_id=actor.user_id,
                 visibility="workspace",
                 created_at=now,
                 updated_at=now,
             ))
-            if actor and actor.user_id is not None:
+            if actor.user_id is not None:
                 conn.execute(insert(marketplace_role_grants).values(
                     organization_id=DEFAULT_ORGANIZATION_ID,
                     marketplace_slug=slug,
@@ -121,20 +136,13 @@ def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor |
                     role=MARKETPLACE_ADMIN,
                     created_at=now,
                 ))
-            write_path.sync_and_commit(
-                slug, conn,
-                commit_message="Initialize marketplace",
-                author_name=body.ownerName,
-                author_email=body.ownerEmail,
-            )
+            write_path.sync_and_commit(slug, conn, commit_message="Initialize marketplace")
     except Exception:
         git_store.delete_repo(slug)
         raise
 
     with get_connection() as conn:
-        row = conn.execute(
-            select(marketplaces).where(marketplaces.c.slug == slug)
-        ).mappings().one()
+        row = conn.execute(_marketplace_with_owner(conn, marketplaces.c.slug == slug)).mappings().one()
         out = _row_to_out(row, 0)
         out["pluginCount"] = 0
         return out
@@ -154,10 +162,6 @@ def update_marketplace(slug: str, body: MarketplaceUpdate, request: Request, act
     updates: dict = {}
     if body.displayName is not None:
         updates["display_name"] = body.displayName
-    if body.ownerName is not None:
-        updates["owner_name"] = body.ownerName
-    if body.ownerEmail is not None:
-        updates["owner_email"] = body.ownerEmail
     if body.visibility is not None:
         updates["visibility"] = body.visibility
 
@@ -169,7 +173,8 @@ def update_marketplace(slug: str, body: MarketplaceUpdate, request: Request, act
             plugin_count = conn.execute(
                 select(func.count()).where(plugins.c.marketplace_slug == slug)
             ).scalar()
-        out = _row_to_out(row, skill_count)
+            existing_row = conn.execute(_marketplace_with_owner(conn, marketplaces.c.slug == slug)).mappings().one()
+        out = _row_to_out(existing_row, skill_count)
         out["pluginCount"] = plugin_count
         return out
 
@@ -179,23 +184,13 @@ def update_marketplace(slug: str, body: MarketplaceUpdate, request: Request, act
     try:
         with get_transaction() as conn:
             conn.execute(update(marketplaces).where(marketplaces.c.slug == slug).values(**updates))
-            new_row = conn.execute(
-                select(marketplaces).where(marketplaces.c.slug == slug)
-            ).mappings().one()
-            write_path.sync_and_commit(
-                slug, conn,
-                commit_message="Update marketplace metadata",
-                author_name=new_row["owner_name"],
-                author_email=new_row["owner_email"],
-            )
+            write_path.sync_and_commit(slug, conn, commit_message="Update marketplace metadata")
     except Exception:
         git_store.reset_working_tree(slug)
         raise
 
     with get_connection() as conn:
-        updated_row = conn.execute(
-            select(marketplaces).where(marketplaces.c.slug == slug)
-        ).mappings().one()
+        updated_row = conn.execute(_marketplace_with_owner(conn, marketplaces.c.slug == slug)).mappings().one()
         skill_count = conn.execute(
             select(func.count()).where(skills.c.marketplace_slug == slug)
         ).scalar()

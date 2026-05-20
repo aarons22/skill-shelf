@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, insert
 from sqlalchemy.engine import Connection
 
 from app.lib.marketplace_json import build_codex_marketplace_json, build_marketplace_json
-from app.models import metadata, marketplaces, plugins, skills
+from app.models import metadata, marketplaces, plugins, skills, users
 
 
 @pytest.fixture
@@ -25,11 +25,20 @@ def conn(monkeypatch):
     metadata.create_all(engine)
     now = int(time.time())
     with engine.connect() as c:
+        c.execute(insert(users).values(
+            id=1,
+            organization_id=1,
+            provider="local",
+            provider_subject="alice@example.com",
+            email="alice@example.com",
+            display_name="Alice",
+            created_at=now,
+            updated_at=now,
+        ))
         c.execute(insert(marketplaces).values(
             slug="finance-team",
             display_name="Finance Team",
-            owner_name="Alice",
-            owner_email="alice@example.com",
+            created_by_user_id=1,
             created_at=now,
             updated_at=now,
         ))

@@ -57,11 +57,7 @@ def test_list_empty(client):
 
 
 def test_create_marketplace(client):
-    r = client.post("/api/marketplaces", json={
-        "displayName": "Finance Team",
-        "ownerName": "Alice",
-        "ownerEmail": "alice@example.com",
-    })
+    r = client.post("/api/marketplaces", json={"displayName": "Finance Team"})
     assert r.status_code == 201
     data = r.json()
     assert data["slug"] == "finance-team"
@@ -70,11 +66,7 @@ def test_create_marketplace(client):
 
 
 def test_create_marketplace_409_on_collision(client):
-    r = client.post("/api/marketplaces", json={
-        "displayName": "Finance Team",  # same slug
-        "ownerName": "Bob",
-        "ownerEmail": "bob@example.com",
-    })
+    r = client.post("/api/marketplaces", json={"displayName": "Finance Team"})
     assert r.status_code == 409
 
 
@@ -197,8 +189,8 @@ def test_delete_marketplace(client):
 
 def test_marketplace_isolation(client):
     # Create two marketplaces
-    client.post("/api/marketplaces", json={"displayName": "Alpha Team", "ownerName": "A", "ownerEmail": "a@a.com"})
-    client.post("/api/marketplaces", json={"displayName": "Beta Team", "ownerName": "B", "ownerEmail": "b@b.com"})
+    client.post("/api/marketplaces", json={"displayName": "Alpha Team"})
+    client.post("/api/marketplaces", json={"displayName": "Beta Team"})
     client.post("/api/marketplaces/alpha-team/plugins", json={"displayName": "Skill A", "description": "d"})
     client.post("/api/marketplaces/beta-team/plugins", json={"displayName": "Skill B", "description": "d"})
     client.post("/api/marketplaces/alpha-team/plugins/skill-a/skills", json={"displayName": "Skill A", "description": "d", "content": "c"})
@@ -223,11 +215,7 @@ def test_marketplace_isolation(client):
 
 
 def test_multi_capability_plugin_crud(client):
-    r = client.post("/api/marketplaces", json={
-        "displayName": "Plugin Team",
-        "ownerName": "Plugin Owner",
-        "ownerEmail": "plugins@example.com",
-    })
+    r = client.post("/api/marketplaces", json={"displayName": "Plugin Team"})
     assert r.status_code == 201
 
     r = client.post("/api/marketplaces/plugin-team/plugins", json={
@@ -298,11 +286,7 @@ def test_multi_capability_plugin_crud(client):
 
 
 def test_restricted_mode_filters_marketplaces_and_allows_scoped_read_tokens(client):
-    r = client.post("/api/marketplaces", json={
-        "displayName": "Private Team",
-        "ownerName": "Owner",
-        "ownerEmail": "owner@example.com",
-    })
+    r = client.post("/api/marketplaces", json={"displayName": "Private Team"})
     assert r.status_code == 201
     assert client.put("/api/marketplaces/private-team", json={"visibility": "restricted"}).status_code == 200
 
@@ -369,11 +353,7 @@ def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_
         "accessMode": "authenticated",
         "marketplaceCreation": "authenticated",
     }).status_code == 200
-    r = client.post("/api/marketplaces", json={
-        "displayName": "Marketplace Admin Only",
-        "ownerName": "Market Admin",
-        "ownerEmail": "market-admin@example.com",
-    })
+    r = client.post("/api/marketplaces", json={"displayName": "Marketplace Admin Only"})
     assert r.status_code == 201
     r = client.post("/api/organization/users", json={
         "email": "maintainer@example.com",

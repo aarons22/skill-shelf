@@ -15,6 +15,7 @@ from app.models import (
     plugin_settings,
     plugins,
     skills,
+    users,
 )
 
 
@@ -23,11 +24,20 @@ def test_build_plugin_files_renders_guided_components():
     metadata.create_all(engine)
     now = int(time.time())
     with engine.connect() as conn:
+        conn.execute(insert(users).values(
+            id=1,
+            organization_id=1,
+            provider="local",
+            provider_subject="alice@example.com",
+            email="alice@example.com",
+            display_name="Alice",
+            created_at=now,
+            updated_at=now,
+        ))
         conn.execute(insert(marketplaces).values(
             slug="finance-team",
             display_name="Finance Team",
-            owner_name="Alice",
-            owner_email="alice@example.com",
+            created_by_user_id=1,
             created_at=now,
             updated_at=now,
         ))

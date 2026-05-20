@@ -34,7 +34,7 @@ export default function MarketplaceDetail() {
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [tab, setTab] = useState<Tab>("plugins");
   const [loading, setLoading] = useState(true);
-  const [settingsForm, setSettingsForm] = useState({ displayName: "", ownerName: "", ownerEmail: "" });
+  const [settingsForm, setSettingsForm] = useState({ displayName: "" });
   const [visibility, setVisibility] = useState<"workspace" | "restricted">("workspace");
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
@@ -55,7 +55,7 @@ export default function MarketplaceDetail() {
     const mkt = await mktRes.json();
     setMarketplace(mkt);
     setPlugins(pluginsRes.ok ? await pluginsRes.json() : []);
-    setSettingsForm({ displayName: mkt.displayName, ownerName: mkt.ownerName, ownerEmail: mkt.ownerEmail });
+    setSettingsForm({ displayName: mkt.displayName });
     setVisibility(mkt.visibility);
     setLoading(false);
   };
@@ -174,8 +174,6 @@ export default function MarketplaceDetail() {
             <form onSubmit={handleSaveSettings} className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
               <h2 className="text-sm font-semibold text-slate-700">Marketplace details</h2>
               <SettingsField label="Name" value={settingsForm.displayName} onChange={(v) => setSettingsForm((f) => ({ ...f, displayName: v }))} />
-              <SettingsField label="Owner name" value={settingsForm.ownerName} onChange={(v) => setSettingsForm((f) => ({ ...f, ownerName: v }))} />
-              <SettingsField label="Owner email" type="email" value={settingsForm.ownerEmail} onChange={(v) => setSettingsForm((f) => ({ ...f, ownerEmail: v }))} />
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">Visibility</span>
                 <select

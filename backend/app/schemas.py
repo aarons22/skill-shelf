@@ -4,14 +4,10 @@ from pydantic import BaseModel, Field, field_validator
 
 class MarketplaceCreate(BaseModel):
     displayName: str
-    ownerName: str
-    ownerEmail: str
 
 
 class MarketplaceUpdate(BaseModel):
     displayName: Optional[str] = None
-    ownerName: Optional[str] = None
-    ownerEmail: Optional[str] = None
     visibility: Optional[Literal["workspace", "restricted"]] = None
 
 

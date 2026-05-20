@@ -28,22 +28,32 @@ from sqlalchemy import select
 from sqlalchemy.engine import Connection
 
 from app.config import get_settings
-from app.models import marketplaces, plugins, skills
+from app.models import marketplaces, plugins, skills, users
+
+
+def _marketplace_owner(slug: str, conn: Connection) -> tuple[str, str]:
+    """Return (display_name, email) for the marketplace owner, falling back to empty strings."""
+    row = conn.execute(
+        select(users.c.display_name, users.c.email)
+        .select_from(
+            marketplaces.outerjoin(users, marketplaces.c.created_by_user_id == users.c.id)
+        )
+        .where(marketplaces.c.slug == slug)
+    ).mappings().one_or_none()
+    if row and row["display_name"]:
+        return row["display_name"], row["email"] or ""
+    return "", ""
 
 
 def build_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
     row = conn.execute(
-        select(
-            marketplaces.c.slug,
-            marketplaces.c.display_name,
-            marketplaces.c.owner_name,
-            marketplaces.c.owner_email,
-        ).where(marketplaces.c.slug == slug)
+        select(marketplaces.c.slug, marketplaces.c.display_name).where(marketplaces.c.slug == slug)
     ).mappings().one_or_none()
 
     if row is None:
         raise KeyError(f"Marketplace {slug!r} not found")
 
+    owner_name, owner_email = _marketplace_owner(slug, conn)
     plugin_rows = _plugin_rows(slug, conn)
     base_url = get_settings().public_base_url.rstrip("/")
     git_url = f"{base_url}/m/{slug}/git/repo.git"
@@ -66,8 +76,8 @@ def build_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
     return {
         "name": slug,
         "owner": {
-            "name": row["owner_name"],
-            "email": row["owner_email"],
+            "name": owner_name,
+            "email": owner_email,
         },
         "plugins": plugins,
     }
@@ -102,12 +112,7 @@ def build_codex_marketplace_json(slug: str, conn: Connection) -> dict[str, Any]:
 
 def _marketplace_row(slug: str, conn: Connection):
     row = conn.execute(
-        select(
-            marketplaces.c.slug,
-            marketplaces.c.display_name,
-            marketplaces.c.owner_name,
-            marketplaces.c.owner_email,
-        ).where(marketplaces.c.slug == slug)
+        select(marketplaces.c.slug, marketplaces.c.display_name).where(marketplaces.c.slug == slug)
     ).mappings().one_or_none()
 
     if row is None:

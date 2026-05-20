@@ -21,11 +21,24 @@ from app.models import (
     plugin_settings,
     plugins,
     skills,
+    users,
 )
 
 
 def _json(data: Any) -> str:
     return json.dumps(data, indent=2, sort_keys=True)
+
+
+def _marketplace_author(marketplace_slug: str, conn: Connection) -> tuple[str, str]:
+    """Return (name, email) for the user who created this marketplace."""
+    row = conn.execute(
+        select(users.c.display_name, users.c.email)
+        .select_from(marketplaces.outerjoin(users, marketplaces.c.created_by_user_id == users.c.id))
+        .where(marketplaces.c.slug == marketplace_slug)
+    ).mappings().one_or_none()
+    if row and row["display_name"]:
+        return row["display_name"], row["email"] or ""
+    return "SkillShelf", "noreply@skillshelf"
 
 
 def _claude_plugin_json(
@@ -96,9 +109,7 @@ def build_plugin_files(marketplace_slug: str, plugin_slug: str, conn: Connection
             plugins.c.slug == plugin_slug,
         )
     ).mappings().one()
-    marketplace = conn.execute(
-        select(marketplaces).where(marketplaces.c.slug == marketplace_slug)
-    ).mappings().one()
+    author_name, author_email = _marketplace_author(marketplace_slug, conn)
 
     skill_rows = conn.execute(
         select(skills).where(
@@ -158,8 +169,8 @@ def build_plugin_files(marketplace_slug: str, plugin_slug: str, conn: Connection
             plugin["display_name"],
             plugin["description"],
             plugin["version"],
-            marketplace["owner_name"],
-            marketplace["owner_email"],
+            author_name,
+            author_email,
             components,
         )
     }
@@ -300,8 +311,6 @@ def sync_and_commit(
     marketplace_slug: str,
     conn: Connection,
     commit_message: str,
-    author_name: str,
-    author_email: str,
     extra_files: dict[str, str | None] | None = None,
 ) -> str:
     """
@@ -314,6 +323,8 @@ def sync_and_commit(
     (steps 2–3 and 8). On exception here, the caller should roll back and call
     git_store.reset_working_tree().
     """
+    author_name, author_email = _marketplace_author(marketplace_slug, conn)
+
     # Step 5: regenerate marketplace files (always full rewrite)
     files: dict[str, str | None] = {
         ".claude-plugin/marketplace.json": marketplace_json.serialize_marketplace_json(marketplace_slug, conn),

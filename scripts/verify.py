@@ -148,11 +148,7 @@ def run_verification() -> None:
 
             # ── Step 2: Create "Finance Team Skills" ──────────────────────────
             print("[verify] Step 2: POST /api/marketplaces")
-            r = client.post("/api/marketplaces", json={
-                "displayName": "Finance Team Skills",
-                "ownerName": "Test Owner",
-                "ownerEmail": "owner@example.com",
-            })
+            r = client.post("/api/marketplaces", json={"displayName": "Finance Team Skills"})
             assert r.status_code == 201, f"Step 2 failed: {r.status_code} {r.text}"
             assert r.json()["slug"] == "finance-team-skills"
             print(f"  slug = {r.json()['slug']}")
@@ -163,8 +159,8 @@ def run_verification() -> None:
             assert r.status_code == 200, f"Step 3 failed: {r.status_code} {r.text}"
             mj = r.json()
             assert mj["name"] == "finance-team-skills"
-            assert mj["owner"]["name"] == "Test Owner"
-            assert mj["owner"]["email"] == "owner@example.com"
+            assert mj["owner"]["name"] == "Admin", f"Expected owner name 'Admin', got {mj['owner']['name']!r}"
+            assert mj["owner"]["email"] == "admin@example.com", f"Expected owner email, got {mj['owner']['email']!r}"
             assert mj["plugins"] == [], f"Expected empty plugins, got {mj['plugins']}"
             print(f"  name={mj['name']}, plugins=[]  ✓")
 
@@ -286,11 +282,7 @@ def run_verification() -> None:
 
             # ── Step 10: Second marketplace — fully isolated ──────────────────
             print("[verify] Step 10: Create second marketplace")
-            r = client.post("/api/marketplaces", json={
-                "displayName": "Engineering Runbooks",
-                "ownerName": "Eng Owner",
-                "ownerEmail": "eng@example.com",
-            })
+            r = client.post("/api/marketplaces", json={"displayName": "Engineering Runbooks"})
             assert r.status_code == 201
             assert r.json()["slug"] == "engineering-runbooks"
 
@@ -434,11 +426,7 @@ def run_verification() -> None:
 
             print("[verify] Step 12: anonymous writes are rejected")
             client.cookies.clear()
-            r = client.post("/api/marketplaces", json={
-                "displayName": "Anonymous Write",
-                "ownerName": "Anon",
-                "ownerEmail": "anon@example.com",
-            })
+            r = client.post("/api/marketplaces", json={"displayName": "Anonymous Write"})
             assert r.status_code == 401, f"Expected 401 for anonymous write, got {r.status_code} {r.text}"
 
             print("[verify] Step 13: local login and password-change flow")
