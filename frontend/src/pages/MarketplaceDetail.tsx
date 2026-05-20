@@ -49,7 +49,7 @@ export default function MarketplaceDetail() {
       fetch(`/api/marketplaces/${slug}/plugins`),
     ]);
     if (!mktRes.ok) {
-      navigate("/admin");
+      navigate("/manage");
       return;
     }
     const mkt = await mktRes.json();
@@ -84,7 +84,7 @@ export default function MarketplaceDetail() {
 
   const handleDeleteMarketplace = async () => {
     await fetch(`/api/marketplaces/${slug}`, { method: "DELETE" });
-    navigate("/admin");
+    navigate("/manage");
   };
 
   const handleCreateToken = async () => {
@@ -110,7 +110,7 @@ export default function MarketplaceDetail() {
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
-          <Link to="/admin" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
+          <Link to="/manage" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
           <span className="text-slate-300">/</span>
           <h1 className="text-lg font-semibold text-slate-950">{marketplace.displayName}</h1>
         </div>
@@ -139,13 +139,13 @@ export default function MarketplaceDetail() {
         {tab === "plugins" && (
           <div>
             <div className="mb-4 flex justify-end">
-              <Link to={`/admin/marketplaces/${slug}/plugins/new`} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              <Link to={`/manage/marketplaces/${slug}/plugins/new`} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
                 Add plugin
               </Link>
             </div>
             {plugins.length === 0 ? (
               <p className="py-12 text-center text-sm text-slate-500">
-                No plugins yet. <Link to={`/admin/marketplaces/${slug}/plugins/new`} className="font-medium text-slate-950 hover:underline">Create one</Link>.
+                No plugins yet. <Link to={`/manage/marketplaces/${slug}/plugins/new`} className="font-medium text-slate-950 hover:underline">Create one</Link>.
               </p>
             ) : (
               <ul className="space-y-3">
@@ -161,7 +161,7 @@ export default function MarketplaceDetail() {
                         </p>
                       </div>
                       <div className="flex shrink-0 gap-3">
-                        <Link to={`/admin/marketplaces/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
+                        <Link to={`/manage/marketplaces/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
                         <button onClick={() => handleDeletePlugin(plugin.slug)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
                       </div>
                     </div>

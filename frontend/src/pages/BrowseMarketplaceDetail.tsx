@@ -77,7 +77,7 @@ export default function BrowseMarketplaceDetail() {
             <p className="text-sm text-slate-700">
               Maintained by <span className="font-medium">{marketplace.ownerName}</span>
             </p>
-            <Link to="/admin" className="text-xs text-slate-400 hover:text-slate-700">
+            <Link to="/manage" className="text-xs text-slate-400 hover:text-slate-700">
               Manage →
             </Link>
           </div>

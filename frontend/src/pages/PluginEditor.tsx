@@ -35,7 +35,7 @@ export default function PluginEditor() {
   const { slug, pluginSlug } = useParams<{ slug: string; pluginSlug?: string }>();
   const navigate = useNavigate();
   const isEditing = Boolean(pluginSlug);
-  const detailPath = useMemo(() => `/admin/marketplaces/${slug ?? ""}`, [slug]);
+  const detailPath = useMemo(() => `/manage/marketplaces/${slug ?? ""}`, [slug]);
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
   const [plugin, setPlugin] = useState<Plugin | null>(null);
   const [form, setForm] = useState({ displayName: "", description: "" });
@@ -53,7 +53,7 @@ export default function PluginEditor() {
       setLoading(true);
       setError("");
       const marketplaceRes = await fetch(`/api/marketplaces/${slug}`);
-      if (!marketplaceRes.ok) { navigate("/admin"); return; }
+      if (!marketplaceRes.ok) { navigate("/manage"); return; }
       const marketplaceData = await marketplaceRes.json();
       if (cancelled) return;
       setMarketplace(marketplaceData);
@@ -103,7 +103,7 @@ export default function PluginEditor() {
       return;
     }
     const data = await res.json();
-    navigate(`/admin/marketplaces/${slug}/plugins/${data.slug}/edit`);
+    navigate(`/manage/marketplaces/${slug}/plugins/${data.slug}/edit`);
   };
 
   async function postComponent(path: ComponentType, body: object): Promise<boolean> {
@@ -141,7 +141,7 @@ export default function PluginEditor() {
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
-          <Link to="/admin" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
+          <Link to="/manage" className="text-sm text-slate-500 hover:text-slate-900">Marketplaces</Link>
           <span className="text-slate-300">/</span>
           <Link to={detailPath} className="text-sm text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
           <span className="text-slate-300">/</span>
@@ -245,7 +245,7 @@ function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, plu
               </span>
               <div className="flex shrink-0 items-center gap-3">
                 <Link
-                  to={`/admin/marketplaces/${slug}/plugins/${pluginSlug}/${path}/${item.slug}/edit`}
+                  to={`/manage/marketplaces/${slug}/plugins/${pluginSlug}/${path}/${item.slug}/edit`}
                   className="text-xs font-medium text-slate-600 hover:text-slate-900"
                 >
                   Edit

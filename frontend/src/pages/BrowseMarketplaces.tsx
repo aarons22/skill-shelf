@@ -28,7 +28,7 @@ export default function BrowseMarketplaces() {
             <h1 className="text-lg font-semibold text-slate-950">SkillShelf</h1>
             <p className="text-xs text-slate-500">Browse and install plugin marketplaces</p>
           </div>
-          <Link to="/admin" className="text-sm text-slate-500 hover:text-slate-900">
+          <Link to="/manage" className="text-sm text-slate-500 hover:text-slate-900">
             Manage →
           </Link>
         </div>
@@ -44,7 +44,7 @@ export default function BrowseMarketplaces() {
               Create your first marketplace to start sharing plugins with your team.
             </p>
             <Link
-              to="/admin/new"
+              to="/manage/marketplaces/new"
               className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
             >
               Create a marketplace
