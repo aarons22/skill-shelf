@@ -454,6 +454,7 @@ class OrganizationUserOut(BaseModel):
     email: str
     displayName: str
     provider: str
+    organizationRole: Literal["organization_admin", "viewer"] = "viewer"
     disabledAt: Optional[int] = None
     mustChangePassword: bool = False
     createdAt: int
@@ -463,6 +464,10 @@ class OrganizationUserOut(BaseModel):
 class OrganizationUserCreate(BaseModel):
     email: str
     displayName: str
+
+
+class OrganizationUserRoleUpdate(BaseModel):
+    organizationRole: Literal["organization_admin", "viewer"]
 
 
 class OrganizationUserCreatedOut(OrganizationUserOut):

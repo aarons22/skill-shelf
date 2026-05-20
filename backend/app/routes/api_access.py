@@ -23,7 +23,7 @@ from app.lib.auth import (
 )
 from app.lib.local_accounts import generate_temp_password, hash_password
 from app.lib.setup_state import is_required
-from app.models import access_tokens, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_settings, users
+from app.models import access_tokens, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_role_grants, organization_settings, users
 from app.schemas import (
     AccessTokenCreate,
     AccessTokenCreatedOut,
@@ -36,6 +36,7 @@ from app.schemas import (
     OrganizationUserCreate,
     OrganizationUserCreatedOut,
     OrganizationUserOut,
+    OrganizationUserRoleUpdate,
     PrincipalGrantIn,
     WorkspaceSettingsOut,
     WorkspaceSettingsUpdate,
@@ -386,6 +387,50 @@ def reset_organization_user_password(user_id: int, actor: Actor | None = Depends
         return {"temporaryPassword": temp_password}
 
 
+@router.put("/organization/users/{user_id}/role", response_model=OrganizationUserOut)
+def update_organization_user_role(user_id: int, body: OrganizationUserRoleUpdate, actor: Actor | None = Depends(get_optional_actor)):
+    with get_transaction() as conn:
+        require_workspace_admin(conn, actor)
+        row = conn.execute(select(users).where(
+            users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            users.c.id == user_id,
+        )).mappings().one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        current_role = _organization_role_for_user(conn, user_id)
+        if current_role == body.organizationRole:
+            return _user_out(conn, row)
+        if current_role == "organization_admin" and body.organizationRole == "viewer":
+            admin_count = conn.execute(
+                select(organization_role_grants.c.principal_id).where(
+                    organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                    organization_role_grants.c.principal_type == "user",
+                    organization_role_grants.c.role == "organization_admin",
+                )
+            ).all()
+            if len(admin_count) <= 1:
+                raise HTTPException(status_code=400, detail="At least one organization admin is required")
+        conn.execute(delete(organization_role_grants).where(
+            organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            organization_role_grants.c.principal_type == "user",
+            organization_role_grants.c.principal_id == user_id,
+            organization_role_grants.c.role == "organization_admin",
+        ))
+        if body.organizationRole == "organization_admin":
+            conn.execute(insert(organization_role_grants).values(
+                organization_id=DEFAULT_ORGANIZATION_ID,
+                principal_type="user",
+                principal_id=user_id,
+                role="organization_admin",
+                created_at=now_ts(),
+            ))
+        record_audit(conn, actor, "user.role_update", "user", str(user_id), {
+            "organizationRole": body.organizationRole,
+        })
+        row = conn.execute(select(users).where(users.c.id == user_id)).mappings().one()
+        return _user_out(conn, row)
+
+
 @router.post("/organization/users/{user_id}/disable", response_model=OrganizationUserOut)
 def disable_organization_user(user_id: int, actor: Actor | None = Depends(get_optional_actor)):
     return _set_user_disabled(user_id, actor, True)
@@ -433,11 +478,24 @@ def _user_out(conn, row) -> dict:
         "email": row["email"],
         "displayName": row["display_name"],
         "provider": row["provider"],
+        "organizationRole": _organization_role_for_user(conn, row["id"]),
         "disabledAt": row["disabled_at"],
         "mustChangePassword": bool(cred and cred[0]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+def _organization_role_for_user(conn, user_id: int) -> str:
+    admin = conn.execute(
+        select(organization_role_grants.c.role).where(
+            organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            organization_role_grants.c.principal_type == "user",
+            organization_role_grants.c.principal_id == user_id,
+            organization_role_grants.c.role == "organization_admin",
+        )
+    ).one_or_none()
+    return "organization_admin" if admin else "viewer"
 
 
 def _set_user_disabled(user_id: int, actor: Actor | None, disabled: bool) -> dict:

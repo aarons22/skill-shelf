@@ -38,6 +38,7 @@ interface OrgUser {
   email: string;
   displayName: string;
   provider: string;
+  organizationRole: "organization_admin" | "viewer";
   disabledAt?: number | null;
   mustChangePassword: boolean;
 }
@@ -184,6 +185,16 @@ export default function OrganizationAdmin() {
     if (!confirm(`Delete login provider "${provider.displayName}"?`)) return;
     const r = await fetch(`/api/organization/auth-providers/${provider.slug}`, { method: "DELETE" });
     setMessage(r.ok ? "Provider deleted." : "Could not delete provider.");
+    if (r.ok) load();
+  };
+
+  const updateUserRole = async (user: OrgUser, organizationRole: OrgUser["organizationRole"]) => {
+    const r = await fetch(`/api/organization/users/${user.id}/role`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organizationRole }),
+    });
+    setMessage(r.ok ? "User role updated." : "Could not update user role.");
     if (r.ok) load();
   };
 
@@ -345,7 +356,16 @@ export default function OrganizationAdmin() {
                       <p className="font-medium text-slate-950">{user.displayName}</p>
                       <p className="text-xs text-slate-500">{user.email} · {user.provider}{user.mustChangePassword ? " · password change required" : ""}</p>
                     </div>
-                    <div className="flex gap-3">
+                    <div className="flex items-center gap-3">
+                      <select
+                        value={user.organizationRole}
+                        onChange={(e) => updateUserRole(user, e.target.value as OrgUser["organizationRole"])}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+                        aria-label={`Organization role for ${user.displayName}`}
+                      >
+                        <option value="viewer">Viewer</option>
+                        <option value="organization_admin">Organization admin</option>
+                      </select>
                       {user.provider === "local" && (
                         <button type="button" onClick={async () => {
                           const res = await fetch(`/api/organization/users/${user.id}/reset-password`, { method: "POST" });

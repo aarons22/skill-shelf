@@ -363,6 +363,34 @@ def test_auth_provider_config_references_secret_env_without_storing_secret(clien
     assert query["redirect_uri"] == ["http://testserver/auth/callback/github-test"]
 
 
+def test_organization_user_roles_can_be_viewed_and_changed(client):
+    created = client.post("/api/organization/users", json={
+        "email": "roles@example.com",
+        "displayName": "Roles User",
+    })
+    assert created.status_code == 201
+    user = created.json()
+    assert user["organizationRole"] == "viewer"
+
+    promoted = client.put(f"/api/organization/users/{user['id']}/role", json={
+        "organizationRole": "organization_admin",
+    })
+    assert promoted.status_code == 200
+    assert promoted.json()["organizationRole"] == "organization_admin"
+
+    demoted = client.put(f"/api/organization/users/{user['id']}/role", json={
+        "organizationRole": "viewer",
+    })
+    assert demoted.status_code == 200
+    assert demoted.json()["organizationRole"] == "viewer"
+
+    admin = next(u for u in client.get("/api/organization/users").json() if u["email"] == "admin@example.com")
+    last_admin = client.put(f"/api/organization/users/{admin['id']}/role", json={
+        "organizationRole": "viewer",
+    })
+    assert last_admin.status_code == 400
+
+
 def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_mode(client):
     assert client.put("/api/organization/settings", json={
         "accessMode": "authenticated",
