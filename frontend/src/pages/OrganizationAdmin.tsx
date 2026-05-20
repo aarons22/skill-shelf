@@ -9,13 +9,13 @@ interface CurrentUser {
 
 interface OrganizationSettings {
   accessMode: "public" | "authenticated" | "restricted";
-  marketplaceCreation: "authenticated" | "organization_admin" | "workspace_admin";
+  marketplaceCreation: "authenticated" | "organization_admin";
 }
 
 interface AuthProvider {
   slug: string;
   displayName: string;
-  providerType: "github" | "oidc" | "trusted_headers";
+  providerType: "local" | "github" | "oidc" | "trusted_header" | "trusted_headers";
   enabled: boolean;
   clientId: string;
   clientSecretEnvVar: string;
@@ -27,10 +27,20 @@ interface AuthProvider {
   scopes: string;
   groupClaim?: string | null;
   allowedOrgs?: string | null;
+  allowlist?: Record<string, unknown> | null;
   loginUrl: string;
 }
 
-type Tab = "access" | "auth" | "tokens";
+interface OrgUser {
+  id: number;
+  email: string;
+  displayName: string;
+  provider: string;
+  disabledAt?: number | null;
+  mustChangePassword: boolean;
+}
+
+type Tab = "access" | "auth" | "users" | "tokens";
 
 const emptyProvider = {
   slug: "github",
@@ -53,8 +63,13 @@ export default function OrganizationAdmin() {
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
   const [providers, setProviders] = useState<AuthProvider[]>([]);
+  const [users, setUsers] = useState<OrgUser[]>([]);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [tempPassword, setTempPassword] = useState("");
   const [tab, setTab] = useState<Tab>(() => {
     if (location.pathname.endsWith("/auth")) return "auth";
+    if (location.pathname.endsWith("/users")) return "users";
     if (location.pathname.endsWith("/tokens")) return "tokens";
     return "access";
   });
@@ -71,12 +86,14 @@ export default function OrganizationAdmin() {
       setLoading(false);
       return;
     }
-    const [settingsRes, providersRes] = await Promise.all([
+    const [settingsRes, providersRes, usersRes] = await Promise.all([
       fetch("/api/organization/settings"),
       fetch("/api/organization/auth-providers"),
+      fetch("/api/organization/users"),
     ]);
     setSettings(await settingsRes.json());
     setProviders(providersRes.ok ? await providersRes.json() : []);
+    setUsers(usersRes.ok ? await usersRes.json() : []);
     setLoading(false);
   };
 
@@ -155,7 +172,7 @@ export default function OrganizationAdmin() {
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         <div className="mb-6 flex gap-6 border-b border-slate-200">
-          {(["access", "auth", "tokens"] as Tab[]).map((item) => (
+          {(["access", "auth", "users", "tokens"] as Tab[]).map((item) => (
             <button
               key={item}
               onClick={() => setTab(item)}
@@ -181,7 +198,7 @@ export default function OrganizationAdmin() {
               </label>
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">Marketplace creation</span>
-                <select value={settings.marketplaceCreation === "workspace_admin" ? "organization_admin" : settings.marketplaceCreation} onChange={(e) => saveSettings({ marketplaceCreation: e.target.value as OrganizationSettings["marketplaceCreation"] })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <select value={settings.marketplaceCreation} onChange={(e) => saveSettings({ marketplaceCreation: e.target.value as OrganizationSettings["marketplaceCreation"] })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
                   <option value="authenticated">Authenticated users</option>
                   <option value="organization_admin">Organization admins</option>
                 </select>
@@ -204,7 +221,7 @@ export default function OrganizationAdmin() {
                         <div>
                           <p className="font-medium text-slate-950">{provider.displayName}</p>
                           <p className="text-xs text-slate-500">{provider.providerType} · {provider.enabled ? "enabled" : "disabled"}</p>
-                          {!provider.secretConfigured && provider.providerType !== "trusted_headers" && (
+                          {!provider.secretConfigured && provider.providerType !== "trusted_header" && provider.providerType !== "trusted_headers" && provider.providerType !== "local" && (
                             <p className="mt-2 text-xs text-amber-700">Missing env var: {provider.clientSecretEnvVar}</p>
                           )}
                         </div>
@@ -212,7 +229,7 @@ export default function OrganizationAdmin() {
                           <button type="button" onClick={() => updateProvider(provider, { enabled: !provider.enabled })} className="text-sm text-slate-700 hover:underline">
                             {provider.enabled ? "Disable" : "Enable"}
                           </button>
-                          <a href={provider.loginUrl} className="text-sm text-slate-700 hover:underline">Test login</a>
+                          {provider.providerType !== "local" && <a href={provider.loginUrl} className="text-sm text-slate-700 hover:underline">Test login</a>}
                           <button type="button" onClick={() => deleteProvider(provider)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
                         </div>
                       </div>
@@ -232,7 +249,7 @@ export default function OrganizationAdmin() {
                   <select value={providerForm.providerType} onChange={(e) => setProviderForm((f) => ({ ...f, providerType: e.target.value as AuthProvider["providerType"], scopes: e.target.value === "github" ? "read:user user:email" : "openid email profile" }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
                     <option value="github">GitHub</option>
                     <option value="oidc">Generic OIDC / SSO</option>
-                    <option value="trusted_headers">Trusted proxy headers</option>
+                    <option value="trusted_header">Trusted proxy headers</option>
                   </select>
                 </label>
                 <Field label="Client ID" value={providerForm.clientId} onChange={(v) => setProviderForm((f) => ({ ...f, clientId: v }))} />
@@ -247,6 +264,59 @@ export default function OrganizationAdmin() {
                 <button className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save provider</button>
               </div>
             </form>
+          </div>
+        )}
+
+        {tab === "users" && (
+          <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+            <section className="rounded-lg border border-slate-200 bg-white p-6">
+              <h2 className="mb-4 text-sm font-semibold text-slate-800">Users</h2>
+              <ul className="space-y-3">
+                {users.map((user) => (
+                  <li key={user.id} className="flex items-center justify-between rounded-md border border-slate-200 p-4">
+                    <div>
+                      <p className="font-medium text-slate-950">{user.displayName}</p>
+                      <p className="text-xs text-slate-500">{user.email} · {user.provider}{user.mustChangePassword ? " · password change required" : ""}</p>
+                    </div>
+                    <div className="flex gap-3">
+                      {user.provider === "local" && (
+                        <button type="button" onClick={async () => {
+                          const res = await fetch(`/api/organization/users/${user.id}/reset-password`, { method: "POST" });
+                          const data = await res.json();
+                          setTempPassword(data.temporaryPassword);
+                        }} className="text-sm text-slate-700 hover:underline">Reset</button>
+                      )}
+                      <button type="button" onClick={async () => {
+                        await fetch(`/api/organization/users/${user.id}/${user.disabledAt ? "enable" : "disable"}`, { method: "POST" });
+                        load();
+                      }} className="text-sm text-slate-700 hover:underline">{user.disabledAt ? "Enable" : "Disable"}</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className="rounded-lg border border-slate-200 bg-white p-6">
+              <h2 className="mb-4 text-sm font-semibold text-slate-800">Create local user</h2>
+              <div className="space-y-3">
+                <Field label="Email" value={newUserEmail} onChange={setNewUserEmail} />
+                <Field label="Display name" value={newUserName} onChange={setNewUserName} />
+                <button type="button" onClick={async () => {
+                  const res = await fetch("/api/organization/users", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: newUserEmail, displayName: newUserName }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setTempPassword(data.temporaryPassword);
+                    setNewUserEmail("");
+                    setNewUserName("");
+                    load();
+                  }
+                }} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Create user</button>
+                {tempPassword && <CopyLine label="Temporary password" value={tempPassword} />}
+              </div>
+            </section>
           </div>
         )}
 

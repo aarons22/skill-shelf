@@ -99,6 +99,53 @@ def run_verification() -> None:
 
             client = httpx.Client(base_url=base_url)
 
+            print("[verify] Step 1: setup is required on a fresh install")
+            r = client.get("/api/setup/status")
+            assert r.status_code == 200, f"Setup status failed: {r.status_code} {r.text}"
+            assert r.json() == {"required": True, "completed": False}, r.json()
+
+            print("[verify] Step 1b: complete setup with Local Accounts")
+            r = client.post("/api/organization/setup", json={
+                "displayName": "SkillShelf Test",
+                "ownerName": "Test Owner",
+                "ownerEmail": "owner@example.com",
+                "accessMode": "public",
+                "marketplaceCreation": "authenticated",
+                "provider": {
+                    "provider": "local",
+                    "admin": {
+                        "email": "admin@example.com",
+                        "displayName": "Admin",
+                        "password": "harness-pass-1234",
+                    },
+                },
+            })
+            assert r.status_code == 200, f"Setup failed: {r.status_code} {r.text}"
+            assert client.cookies.get("skillshelf_session"), "Setup did not set a session cookie"
+            r = client.get("/api/me")
+            assert r.status_code == 200
+            me = r.json()
+            assert me["authenticated"] is True
+            assert me["organizationAdmin"] is True
+            assert me["bootstrapRequired"] is False
+            assert me["bootstrapCompleted"] is True
+            print("  Local admin session created  ✓")
+
+            print("[verify] Step 1c: concurrent/second setup is rejected")
+            r = client.post("/api/organization/setup", json={
+                "displayName": "Losing Setup",
+                "accessMode": "public",
+                "provider": {
+                    "provider": "local",
+                    "admin": {
+                        "email": "other@example.com",
+                        "displayName": "Other",
+                        "password": "harness-pass-5678",
+                    },
+                },
+            })
+            assert r.status_code == 409, f"Expected setup conflict, got {r.status_code} {r.text}"
+
             # ── Step 2: Create "Finance Team Skills" ──────────────────────────
             print("[verify] Step 2: POST /api/marketplaces")
             r = client.post("/api/marketplaces", json={
@@ -385,7 +432,51 @@ def run_verification() -> None:
             assert os.path.isdir(eng_repo), "Engineering repo was unexpectedly deleted"
             print("  First deleted, second unaffected  ✓")
 
-            print("\n[verify] ✅ ALL 12 STEPS PASSED")
+            print("[verify] Step 12: anonymous writes are rejected")
+            client.cookies.clear()
+            r = client.post("/api/marketplaces", json={
+                "displayName": "Anonymous Write",
+                "ownerName": "Anon",
+                "ownerEmail": "anon@example.com",
+            })
+            assert r.status_code == 401, f"Expected 401 for anonymous write, got {r.status_code} {r.text}"
+
+            print("[verify] Step 13: local login and password-change flow")
+            r = client.post("/auth/login/local", json={"email": "admin@example.com", "password": "harness-pass-1234"})
+            assert r.status_code == 200, f"Local admin login failed: {r.status_code} {r.text}"
+            r = client.post("/auth/login/local", json={"email": "admin@example.com", "password": "wrong-password"})
+            assert r.status_code == 401, f"Wrong password should fail: {r.status_code} {r.text}"
+            r = client.post("/api/organization/users", json={"email": "second@example.com", "displayName": "Second User"})
+            assert r.status_code == 201, f"Create user failed: {r.status_code} {r.text}"
+            temp_password = r.json()["temporaryPassword"]
+            client.cookies.clear()
+            r = client.post("/auth/login/local", json={"email": "second@example.com", "password": temp_password})
+            assert r.status_code == 200, f"Second user login failed: {r.status_code} {r.text}"
+            assert r.json()["mustChangePassword"] is True
+            r = client.post("/auth/change-password", json={"current_password": temp_password, "new_password": "second-pass-1234"})
+            assert r.status_code == 200, f"Change password failed: {r.status_code} {r.text}"
+            client.cookies.clear()
+            r = client.post("/auth/login/local", json={"email": "second@example.com", "password": "second-pass-1234"})
+            assert r.status_code == 200
+            assert r.json()["mustChangePassword"] is False
+
+            print("[verify] Step 14: recovery CLI reset-password")
+            env_cli = {**env, "PYTHONPATH": str(BACKEND_DIR)}
+            result = subprocess.run(
+                [sys.executable, "-m", "skillshelf", "reset-password", "admin@example.com"],
+                cwd=str(BACKEND_DIR),
+                env=env_cli,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            reset_password = result.stdout.strip().splitlines()[-1]
+            client.cookies.clear()
+            r = client.post("/auth/login/local", json={"email": "admin@example.com", "password": reset_password})
+            assert r.status_code == 200, f"Reset password login failed: {r.status_code} {r.text}"
+            assert r.json()["mustChangePassword"] is True
+
+            print("\n[verify] ✅ ALL STEPS PASSED")
 
         finally:
             proc.terminate()

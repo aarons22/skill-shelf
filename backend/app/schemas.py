@@ -278,21 +278,27 @@ class CurrentUserOut(BaseModel):
     id: Optional[int] = None
     email: Optional[str] = None
     displayName: Optional[str] = None
+    user: Optional[dict[str, Any]] = None
     workspaceAdmin: bool = False
     organizationAdmin: bool = False
     marketplaceAdminSlugs: list[str] = Field(default_factory=list)
     provider: Optional[str] = None
     loginConfigured: bool = False
+    bootstrapRequired: bool = False
+    bootstrapCompleted: bool = True
+    mustChangePassword: bool = False
+    accessMode: Literal["public", "authenticated", "restricted"] = "public"
+    marketplaceCreation: Literal["authenticated", "organization_admin"] = "authenticated"
 
 
 class WorkspaceSettingsOut(BaseModel):
     accessMode: Literal["public", "authenticated", "restricted"]
-    marketplaceCreation: Literal["authenticated", "organization_admin", "workspace_admin"]
+    marketplaceCreation: Literal["authenticated", "organization_admin"]
 
 
 class WorkspaceSettingsUpdate(BaseModel):
     accessMode: Optional[Literal["public", "authenticated", "restricted"]] = None
-    marketplaceCreation: Optional[Literal["authenticated", "organization_admin", "workspace_admin"]] = None
+    marketplaceCreation: Optional[Literal["authenticated", "organization_admin"]] = None
 
 
 class PrincipalGrantIn(BaseModel):
@@ -338,7 +344,7 @@ class AccessTokenOut(BaseModel):
 class AuthProviderIn(BaseModel):
     slug: str
     displayName: str
-    providerType: Literal["github", "oidc", "trusted_headers"]
+    providerType: Literal["local", "github", "oidc", "trusted_header", "trusted_headers"]
     enabled: bool = True
     clientId: str = ""
     clientSecretEnvVar: str = ""
@@ -349,6 +355,7 @@ class AuthProviderIn(BaseModel):
     scopes: str = "openid email profile"
     groupClaim: Optional[str] = None
     allowedOrgs: Optional[str] = None
+    allowlist: Optional[dict[str, Any]] = None
 
 
 class AuthProviderUpdate(BaseModel):
@@ -363,13 +370,14 @@ class AuthProviderUpdate(BaseModel):
     scopes: Optional[str] = None
     groupClaim: Optional[str] = None
     allowedOrgs: Optional[str] = None
+    allowlist: Optional[dict[str, Any]] = None
 
 
 class AuthProviderOut(BaseModel):
     id: int
     slug: str
     displayName: str
-    providerType: Literal["github", "oidc", "trusted_headers"]
+    providerType: Literal["local", "github", "oidc", "trusted_header", "trusted_headers"]
     enabled: bool
     clientId: str
     clientSecretEnvVar: str
@@ -381,6 +389,83 @@ class AuthProviderOut(BaseModel):
     scopes: str
     groupClaim: Optional[str] = None
     allowedOrgs: Optional[str] = None
+    allowlist: Optional[dict[str, Any]] = None
     loginUrl: str
     createdAt: int
     updatedAt: int
+
+
+class SetupStatusOut(BaseModel):
+    required: bool
+    completed: bool
+
+
+class LocalSetupAdmin(BaseModel):
+    email: str
+    displayName: str
+    password: str
+
+
+class SetupProviderIn(BaseModel):
+    provider: Literal["local", "github", "oidc", "trusted_header", "trusted_headers"] = "local"
+    admin: Optional[LocalSetupAdmin] = None
+    slug: str = "local"
+    displayName: str = "Local Accounts"
+    clientId: str = ""
+    clientSecretEnvVar: str = ""
+    issuerUrl: Optional[str] = None
+    authorizationUrl: Optional[str] = None
+    tokenUrl: Optional[str] = None
+    userinfoUrl: Optional[str] = None
+    scopes: str = "openid email profile"
+    groupClaim: Optional[str] = None
+    allowlist: Optional[dict[str, Any]] = None
+
+
+class OrganizationSetupIn(BaseModel):
+    displayName: str
+    ownerName: Optional[str] = None
+    ownerEmail: Optional[str] = None
+    accessMode: Literal["public", "authenticated", "restricted"] = "public"
+    marketplaceCreation: Literal["authenticated", "organization_admin"] = "authenticated"
+    provider: SetupProviderIn
+
+
+class LoginLocalIn(BaseModel):
+    email: str
+    password: str
+
+
+class ChangePasswordIn(BaseModel):
+    currentPassword: str = Field(alias="current_password")
+    newPassword: str = Field(alias="new_password")
+
+    model_config = {"populate_by_name": True}
+
+
+class PublicAuthProviderOut(BaseModel):
+    slug: str
+    displayName: str
+    providerType: str
+    kind: Literal["credentials", "redirect", "trusted_header"]
+    loginUrl: str
+
+
+class OrganizationUserOut(BaseModel):
+    id: int
+    email: str
+    displayName: str
+    provider: str
+    disabledAt: Optional[int] = None
+    mustChangePassword: bool = False
+    createdAt: int
+    updatedAt: int
+
+
+class OrganizationUserCreate(BaseModel):
+    email: str
+    displayName: str
+
+
+class OrganizationUserCreatedOut(OrganizationUserOut):
+    temporaryPassword: str

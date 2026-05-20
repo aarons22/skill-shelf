@@ -29,6 +29,22 @@ def temp_env(tmp_path_factory):
 def client():
     from app.main import app
     with TestClient(app) as c:
+        r = c.post("/api/organization/setup", json={
+            "displayName": "Test Organization",
+            "ownerName": "Test Owner",
+            "ownerEmail": "owner@example.com",
+            "accessMode": "public",
+            "marketplaceCreation": "authenticated",
+            "provider": {
+                "provider": "local",
+                "admin": {
+                    "email": "admin@example.com",
+                    "displayName": "Admin",
+                    "password": "admin-pass-1234",
+                },
+            },
+        })
+        assert r.status_code == 200
         yield c
 
 
@@ -282,51 +298,50 @@ def test_multi_capability_plugin_crud(client):
 
 
 def test_restricted_mode_filters_marketplaces_and_allows_scoped_read_tokens(client):
-    headers = {
-        "X-SkillShelf-User-Email": "owner@example.com",
-        "X-SkillShelf-User-Name": "Owner",
-    }
-    r = client.post("/api/marketplaces", headers=headers, json={
+    r = client.post("/api/marketplaces", json={
         "displayName": "Private Team",
         "ownerName": "Owner",
         "ownerEmail": "owner@example.com",
     })
     assert r.status_code == 201
-    assert client.put("/api/marketplaces/private-team", headers=headers, json={"visibility": "restricted"}).status_code == 200
+    assert client.put("/api/marketplaces/private-team", json={"visibility": "restricted"}).status_code == 200
 
-    token_response = client.post("/api/access-tokens", headers=headers, json={
+    token_response = client.post("/api/access-tokens", json={
         "name": "Claude read",
         "marketplaceSlug": "private-team",
     })
     assert token_response.status_code == 201
     token = token_response.json()["token"]
 
-    assert client.put("/api/workspace/settings", json={"accessMode": "restricted"}).status_code == 200
+    assert client.put("/api/organization/settings", json={"accessMode": "restricted"}).status_code == 200
+    client.cookies.clear()
     assert client.get("/api/marketplaces").json() == []
     assert client.get("/m/private-team").status_code == 401
     assert client.get("/m/private-team", params={"access_token": token}).status_code == 200
-    visible_slugs = {row["slug"] for row in client.get("/api/marketplaces", headers=headers).json()}
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    visible_slugs = {row["slug"] for row in client.get("/api/marketplaces").json()}
     assert "private-team" in visible_slugs
 
 
-def test_development_mode_allows_workspace_settings_recovery_without_headers(client):
+def test_development_mode_does_not_grant_anonymous_admin(client):
+    client.cookies.clear()
     me = client.get("/api/me").json()
     assert me["authenticated"] is False
-    assert me["organizationAdmin"] is True
-    assert client.put("/api/workspace/settings", json={"accessMode": "authenticated"}).status_code == 200
-    r = client.put("/api/workspace/settings", json={"accessMode": "public"})
+    assert me["organizationAdmin"] is False
+    assert client.put("/api/organization/settings", json={"accessMode": "authenticated"}).status_code == 401
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    r = client.put("/api/organization/settings", json={"accessMode": "public"})
     assert r.status_code == 200
     assert r.json()["accessMode"] == "public"
 
 
-def test_organization_settings_aliases_workspace_settings(client):
+def test_organization_settings_update(client):
     r = client.put("/api/organization/settings", json={
         "accessMode": "authenticated",
         "marketplaceCreation": "organization_admin",
     })
     assert r.status_code == 200
     assert r.json()["marketplaceCreation"] == "organization_admin"
-    assert client.get("/api/workspace/settings").json()["accessMode"] == "authenticated"
     assert client.put("/api/organization/settings", json={"accessMode": "public"}).status_code == 200
 
 
@@ -350,36 +365,29 @@ def test_auth_provider_config_references_secret_env_without_storing_secret(clien
 
 
 def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_mode(client):
-    owner_headers = {
-        "X-SkillShelf-User-Email": "market-admin@example.com",
-        "X-SkillShelf-User-Name": "Market Admin",
-    }
-    other_headers = {
-        "X-SkillShelf-User-Email": "other-admin@example.com",
-        "X-SkillShelf-User-Name": "Other Admin",
-    }
     assert client.put("/api/organization/settings", json={
         "accessMode": "authenticated",
         "marketplaceCreation": "authenticated",
     }).status_code == 200
-    r = client.post("/api/marketplaces", headers=owner_headers, json={
+    r = client.post("/api/marketplaces", json={
         "displayName": "Marketplace Admin Only",
         "ownerName": "Market Admin",
         "ownerEmail": "market-admin@example.com",
     })
     assert r.status_code == 201
-    # The first signed-in user became organization admin. A later marketplace
-    # owner is only a marketplace admin unless granted organization-wide access.
-    r = client.post("/api/marketplaces", headers=other_headers, json={
-        "displayName": "Second Admin Only",
-        "ownerName": "Other Admin",
-        "ownerEmail": "other-admin@example.com",
+    r = client.post("/api/organization/users", json={
+        "email": "maintainer@example.com",
+        "displayName": "Maintainer",
     })
     assert r.status_code == 201
+    password = r.json()["temporaryPassword"]
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "maintainer@example.com", "password": password}).status_code == 200
+    assert client.post("/auth/change-password", json={"current_password": password, "new_password": "maintainer-pass-1234"}).status_code == 200
     assert client.put(
         "/api/organization/settings",
-        headers=other_headers,
         json={"accessMode": "restricted"},
     ).status_code == 403
-    assert client.get("/api/marketplaces/second-admin-only", headers=other_headers).status_code == 200
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
     assert client.put("/api/organization/settings", json={"accessMode": "public"}).status_code == 200

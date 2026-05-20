@@ -88,6 +88,8 @@ def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor |
     # Collision check (outside transaction to avoid locking)
     with get_connection() as conn:
         if not can_create_marketplace(conn, actor):
+            if actor is None:
+                raise HTTPException(status_code=401, detail="Authentication required")
             raise HTTPException(status_code=403, detail="Marketplace creation is not allowed")
         existing = conn.execute(
             select(marketplaces.c.slug).where(marketplaces.c.slug == slug)

@@ -8,6 +8,9 @@ organizations = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("slug", Text, nullable=False, unique=True),
     Column("display_name", Text, nullable=False),
+    Column("owner_name", Text, nullable=True),
+    Column("owner_email", Text, nullable=True),
+    Column("bootstrap_completed_at", Integer, nullable=True),
     Column("created_at", Integer, nullable=False),
     Column("updated_at", Integer, nullable=False),
 )
@@ -25,8 +28,8 @@ marketplaces = Table(
     Column("updated_at", Integer, nullable=False),
 )
 
-workspace_settings = Table(
-    "workspace_settings",
+organization_settings = Table(
+    "organization_settings",
     metadata,
     Column("id", Integer, primary_key=True),
     Column("organization_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, default=1),
@@ -75,8 +78,8 @@ user_groups = Table(
     PrimaryKeyConstraint("organization_id", "user_id", "group_id"),
 )
 
-workspace_role_grants = Table(
-    "workspace_role_grants",
+organization_role_grants = Table(
+    "organization_role_grants",
     metadata,
     Column("organization_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, default=1),
     Column("principal_type", Text, nullable=False),
@@ -162,9 +165,19 @@ auth_providers = Table(
     Column("scopes", Text, nullable=False),
     Column("group_claim", Text, nullable=True),
     Column("allowed_orgs", Text, nullable=True),
+    Column("allowlist_json", Text, nullable=True),
     Column("created_at", Integer, nullable=False),
     Column("updated_at", Integer, nullable=False),
     UniqueConstraint("organization_id", "slug"),
+)
+
+local_account_credentials = Table(
+    "local_account_credentials",
+    metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("password_hash", Text, nullable=False),
+    Column("must_change_password", Integer, nullable=False, default=0),
+    Column("last_password_change", Integer, nullable=False),
 )
 
 skills = Table(

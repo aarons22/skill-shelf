@@ -8,11 +8,12 @@ from typing import Any, Literal
 from fastapi import Cookie, Header, HTTPException, Query, Request, status
 from sqlalchemy import and_, insert, or_, select, update
 
-from app.config import get_settings
+from app.lib.provider_allowlist import enforce
 from app.lib.session import COOKIE_NAME, read_payload
 from app.models import (
     access_tokens,
     audit_events,
+    auth_providers,
     groups,
     marketplace_role_grants,
     marketplaces,
@@ -20,15 +21,14 @@ from app.models import (
     plugin_role_grants,
     user_groups,
     users,
-    workspace_role_grants,
-    workspace_settings,
+    organization_role_grants,
+    organization_settings,
 )
 
 AccessMode = Literal["public", "authenticated", "restricted"]
 
 DEFAULT_ORGANIZATION_ID = 1
 ORGANIZATION_ADMIN = "organization_admin"
-WORKSPACE_ADMIN = ORGANIZATION_ADMIN
 MARKETPLACE_ADMIN = "marketplace_admin"
 MARKETPLACE_MAINTAINER = "marketplace_maintainer"
 PLUGIN_MAINTAINER = "plugin_maintainer"
@@ -96,13 +96,13 @@ def record_audit(conn, actor: Actor | None, action: str, target_type: str, targe
     ))
 
 
-def ensure_workspace_settings(conn) -> dict[str, Any]:
+def ensure_organization_settings(conn) -> dict[str, Any]:
     ensure_default_organization(conn)
-    row = conn.execute(select(workspace_settings).where(workspace_settings.c.id == 1)).mappings().one_or_none()
+    row = conn.execute(select(organization_settings).where(organization_settings.c.id == 1)).mappings().one_or_none()
     if row is not None:
         return dict(row)
     now = now_ts()
-    conn.execute(insert(workspace_settings).values(
+    conn.execute(insert(organization_settings).values(
         id=1,
         organization_id=DEFAULT_ORGANIZATION_ID,
         access_mode="public",
@@ -156,17 +156,6 @@ def upsert_user(conn, provider: str, subject: str, email: str, display_name: str
     ).mappings().one()
     if user["disabled_at"] is not None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
-    existing_admin = conn.execute(
-        select(workspace_role_grants.c.role).where(workspace_role_grants.c.role == WORKSPACE_ADMIN)
-    ).one_or_none()
-    if existing_admin is None:
-        conn.execute(insert(workspace_role_grants).values(
-            organization_id=DEFAULT_ORGANIZATION_ID,
-            principal_type="user",
-            principal_id=user["id"],
-            role=ORGANIZATION_ADMIN,
-            created_at=now,
-        ))
     return Actor(user_id=user["id"], email=user["email"], display_name=user["display_name"])
 
 
@@ -225,12 +214,23 @@ def actor_from_headers(
 ) -> Actor | None:
     if not x_skillshelf_user_email:
         return None
-    provider = "headers"
+    provider_row = conn.execute(
+        select(auth_providers).where(
+            auth_providers.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            auth_providers.c.enabled == 1,
+            auth_providers.c.provider_type.in_(["trusted_header", "trusted_headers"]),
+        )
+    ).mappings().first()
+    if provider_row is None:
+        return None
+    group_names = [value.strip() for value in (x_skillshelf_groups or "").split(",") if value.strip()]
+    enforce(dict(provider_row), {"email": x_skillshelf_user_email}, group_names)
+    provider = provider_row["slug"]
     subject = x_skillshelf_user_id or x_skillshelf_user_email
     display_name = x_skillshelf_user_name or x_skillshelf_user_email
     actor = upsert_user(conn, provider, subject, x_skillshelf_user_email, display_name)
-    if x_skillshelf_groups:
-        sync_header_groups(conn, actor, provider, x_skillshelf_groups.split(","))
+    if group_names:
+        sync_header_groups(conn, actor, provider, group_names)
     return actor
 
 
@@ -261,15 +261,13 @@ def get_optional_actor(
                 request.state.actor = actor
                 return actor
     with get_transaction() as conn:
-        actor = None
-        if get_settings().trusted_header_auth or get_settings().node_env == "development":
-            actor = actor_from_headers(
-                conn,
-                x_skillshelf_user_email,
-                x_skillshelf_user_name,
-                x_skillshelf_user_id,
-                x_skillshelf_groups,
-            )
+        actor = actor_from_headers(
+            conn,
+            x_skillshelf_user_email,
+            x_skillshelf_user_name,
+            x_skillshelf_user_id,
+            x_skillshelf_groups,
+        )
     request.state.actor = actor
     return actor
 
@@ -330,16 +328,16 @@ def _principal_filters(conn, actor: Actor):
     ]
     filters = [
         and_(
-            workspace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
-            workspace_role_grants.c.principal_type == "user",
-            workspace_role_grants.c.principal_id == actor.user_id,
+            organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            organization_role_grants.c.principal_type == "user",
+            organization_role_grants.c.principal_id == actor.user_id,
         )
     ]
     filters.extend(
         and_(
-            workspace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
-            workspace_role_grants.c.principal_type == "group",
-            workspace_role_grants.c.principal_id == gid,
+            organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            organization_role_grants.c.principal_type == "group",
+            organization_role_grants.c.principal_id == gid,
         )
         for gid in group_ids
     )
@@ -349,14 +347,12 @@ def _principal_filters(conn, actor: Actor):
 def is_workspace_admin(conn, actor: Actor | None) -> bool:
     if actor is None:
         return False
-    if actor.anonymous:
-        return True
     filters = _principal_filters(conn, actor)
     if not filters:
         return False
     return conn.execute(
-        select(workspace_role_grants.c.role).where(
-            workspace_role_grants.c.role.in_([ORGANIZATION_ADMIN, "workspace_admin"]),
+        select(organization_role_grants.c.role).where(
+            organization_role_grants.c.role == ORGANIZATION_ADMIN,
             or_(*filters),
         )
     ).one_or_none() is not None
@@ -444,29 +440,25 @@ def has_plugin_role(conn, actor: Actor | None, marketplace_slug: str, plugin_slu
     ).one_or_none() is not None
 
 
-def anonymous_admin_if_public(conn) -> Actor | None:
-    settings = ensure_workspace_settings(conn)
-    if settings["access_mode"] == "public" or get_settings().node_env == "development":
-        return Actor(user_id=None, email="anonymous@skillshelf.local", display_name="Anonymous", anonymous=True)
-    return None
-
-
 def require_workspace_admin(conn, actor: Actor | None) -> Actor:
-    actor = actor or anonymous_admin_if_public(conn)
+    if actor is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     if not is_workspace_admin(conn, actor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization admin required")
     return actor
 
 
 def require_marketplace_admin(conn, actor: Actor | None, marketplace_slug: str) -> Actor:
-    actor = actor or anonymous_admin_if_public(conn)
+    if actor is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     if not has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN}):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Marketplace admin required")
     return actor
 
 
 def require_marketplace_write(conn, actor: Actor | None, marketplace_slug: str, plugin_slug: str | None = None) -> Actor:
-    actor = actor or anonymous_admin_if_public(conn)
+    if actor is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     if plugin_slug and has_plugin_role(conn, actor, marketplace_slug, plugin_slug, {PLUGIN_MAINTAINER}):
         return actor
     if not has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER}):
@@ -475,9 +467,7 @@ def require_marketplace_write(conn, actor: Actor | None, marketplace_slug: str, 
 
 
 def can_create_marketplace(conn, actor: Actor | None) -> bool:
-    settings = ensure_workspace_settings(conn)
-    if settings["access_mode"] == "public" and actor is None:
-        return True
+    settings = ensure_organization_settings(conn)
     if actor is None:
         return False
     if is_workspace_admin(conn, actor):
@@ -486,7 +476,7 @@ def can_create_marketplace(conn, actor: Actor | None) -> bool:
 
 
 def can_read_marketplace(conn, actor: Actor | None, marketplace_slug: str, read_token: ReadToken | None = None) -> bool:
-    settings = ensure_workspace_settings(conn)
+    settings = ensure_organization_settings(conn)
     if read_token is not None:
         return read_token.scope == "marketplace_read" and (
             read_token.marketplace_slug is None or read_token.marketplace_slug == marketplace_slug
@@ -511,7 +501,7 @@ def require_marketplace_read(conn, actor: Actor | None, marketplace_slug: str, r
 
 
 def visible_marketplace_condition(conn, actor: Actor | None):
-    settings = ensure_workspace_settings(conn)
+    settings = ensure_organization_settings(conn)
     if settings["access_mode"] == "public":
         return None
     if actor is None:
@@ -563,6 +553,7 @@ def _granted_marketplace_slugs(conn, actor: Actor, roles: set[str]) -> list[str]
 
 def public_read_dependencies(
     request: Request,
+    skillshelf_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
     access_token: str | None = Query(default=None),
     x_skillshelf_user_email: str | None = Header(default=None),
@@ -573,7 +564,19 @@ def public_read_dependencies(
     from app.db import get_transaction
 
     with get_transaction() as conn:
-        actor = actor_from_headers(conn, x_skillshelf_user_email, x_skillshelf_user_name, x_skillshelf_user_id, x_skillshelf_groups)
+        actor = None
+        session = read_payload(skillshelf_session)
+        if session and session.get("user_id"):
+            user = conn.execute(
+                select(users).where(
+                    users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                    users.c.id == int(session["user_id"]),
+                )
+            ).mappings().one_or_none()
+            if user is not None and user["disabled_at"] is None:
+                actor = Actor(user_id=user["id"], email=user["email"], display_name=user["display_name"])
+        if actor is None:
+            actor = actor_from_headers(conn, x_skillshelf_user_email, x_skillshelf_user_name, x_skillshelf_user_id, x_skillshelf_groups)
         request.state.actor = actor
         request.state.read_token = get_read_token(conn, authorization, access_token)
     return None

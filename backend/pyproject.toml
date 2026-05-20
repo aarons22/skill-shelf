@@ -16,6 +16,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "httpx>=0.27",
     "a2wsgi>=1.10",
+    "passlib[bcrypt]>=1.7",
 ]
 
 [project.optional-dependencies]
@@ -31,4 +32,4 @@ asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*"]
+include = ["app*", "skillshelf*"]

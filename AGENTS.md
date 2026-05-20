@@ -10,10 +10,11 @@ This is the living reference for every coding agent working on this repo. When t
 
 The user's experience:
 1. `docker compose up` on a server they own.
-2. Open the web UI. Create a marketplace — give it a name. The UI shows the URL to add to Claude Code.
-3. Add plugins and guided components through forms. Skills are added inside a plugin.
-4. From Claude Code: `/plugin marketplace add https://their-server/m/<slug>`.
-5. Plugins appear in Claude Code and can be installed. The same git repo also contains Codex plugin manifests for skill-bearing plugins.
+2. Open the web UI. On a fresh install, complete `/setup`; Local Accounts is the built-in offline identity provider and the first setup user becomes organization admin.
+3. Create a marketplace — give it a name. The UI shows the URL to add to Claude Code.
+4. Add plugins and guided components through forms. Skills are added inside a plugin.
+5. From Claude Code: `/plugin marketplace add https://their-server/m/<slug>`.
+6. Plugins appear in Claude Code and can be installed. The same git repo also contains Codex plugin manifests for skill-bearing plugins.
 
 The user **never** sees, types, or learns git, even though git is the storage engine.
 
@@ -200,10 +201,11 @@ Component tables hang off `(marketplace_slug, plugin_slug)`:
 
 Access control tables store provider-neutral identity and local grants:
 - `organizations`: tenant boundary; v1 self-hosted uses one default organization
-- `workspace_settings`: legacy table name for organization access mode (`public`, `authenticated`, or `restricted`) and marketplace creation policy
+- `organization_settings`: organization access mode (`public`, `authenticated`, or `restricted`) and marketplace creation policy
 - `auth_providers`: organization-scoped GitHub/OIDC/trusted-header login provider metadata; secrets are env vars, never stored in SQLite
+- `local_account_credentials`: local-account password credentials and forced password-change state
 - `users`, `groups`, and `user_groups`: organization-scoped identity records synced from sessions, trusted headers, or OIDC-style claims
-- `workspace_role_grants`: legacy table name for organization role grants; use `organization_admin` for new grants
+- `organization_role_grants`: organization role grants; use `organization_admin`
 - `marketplace_role_grants` and `plugin_role_grants`: organization-scoped local role grants for users or groups
 - `access_tokens`: hashed scoped read tokens for marketplace JSON and git clone access
 - `audit_events`: reserved for access and destructive-action audit records
@@ -319,13 +321,17 @@ All under `/api`, JSON in / JSON out. Access is controlled by organization mode 
 | `GET` | `/api/me` | Current user from session or trusted identity headers |
 | `GET` | `/api/organization/settings` | Organization access mode and marketplace creation policy |
 | `PUT` | `/api/organization/settings` | Organization-admin only; mode is `public`, `authenticated`, or `restricted` |
-| `GET` | `/api/workspace/settings` | Compatibility alias for organization settings |
-| `PUT` | `/api/workspace/settings` | Compatibility alias for organization settings |
 | `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; client secrets are env var references |
 | `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
 | `GET/POST/DELETE` | `/api/access-tokens` | Scoped read token lifecycle |
 
-Roles are `organization_admin`, `marketplace_admin`, `marketplace_maintainer`, optional `plugin_maintainer`, and `viewer`. In `public` mode, anonymous users can read all marketplaces and the local no-auth development flow keeps write access open until a host configures identity. In `authenticated` mode, organization-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
+Roles are `organization_admin`, `marketplace_admin`, `marketplace_maintainer`, optional `plugin_maintainer`, and `viewer`. In `public` mode, anonymous users can read marketplaces and smart-HTTP repos, but writes still require a real authenticated user with the right grant. In `authenticated` mode, organization-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
+
+Lifecycle phases:
+- **Pre-setup**: `organizations.bootstrap_completed_at IS NULL`; `/setup` is open and the first successful `POST /api/organization/setup` creates the initial auth provider and organization admin. A concurrent second setup returns 409.
+- **Operational**: `bootstrap_completed_at` is set; `/setup` is locked, `/login` is live, and anonymous admin behavior is not available.
+
+Recovery is via host-shell CLI: `python -m skillshelf reset-password <email>`, `python -m skillshelf promote-user <email> organization_admin`, and `python -m skillshelf create-user <email> <display-name>`.
 
 ### Plugins and components
 
@@ -384,7 +390,8 @@ Atomicity is non-negotiable. A `git clone` between two commits should never see 
 ### What `scripts/verify.py` does (all 12 steps must pass)
 
 1. Start the FastAPI server on a random free port with a temporary `SKILLSHELF_DATA_DIR`.
-2. `POST /api/marketplaces` → create "Finance Team Skills".
+2. Assert setup is required, complete `/api/organization/setup` with Local Accounts, verify a real admin session, and assert a second setup returns 409.
+3. `POST /api/marketplaces` → create "Finance Team Skills".
 3. `GET /m/finance-team-skills/marketplace.json` → assert valid JSON, empty `plugins`, correct `name`/`owner`.
 4. `POST /api/marketplaces/finance-team-skills/plugins`, then `POST /api/marketplaces/finance-team-skills/plugins/quarterly-report-process/skills` → create "Quarterly Report Process".
 5. Re-fetch `marketplace.json` → assert skill appears with correct `source.url`, `source.path`, `description`.
@@ -394,7 +401,8 @@ Atomicity is non-negotiable. A `git clone` between two commits should never see 
 9. `DELETE` the plugin. Re-fetch `marketplace.json` → plugin gone. Re-clone → plugin folder gone.
 10. Create a second marketplace + skill. Assert it has its own `/m/<slug>` and git repo, fully isolated.
 11. Create a multi-capability plugin with a skill, hook, agent, MCP server, command, monitor, and settings. Clone and assert every component file is rendered at the plugin root-level paths Claude expects.
-12. `DELETE` the first marketplace. Assert its endpoints return 404 and its on-disk repo is removed. Assert second marketplace is untouched, then shut down server.
+12. `DELETE` the first marketplace. Assert its endpoints return 404 and its on-disk repo is removed. Assert second marketplace is untouched.
+13. Clear the session and assert anonymous writes return 401; verify local login, wrong-password failure, admin-created users with forced password change, and recovery CLI reset-password, then shut down server.
 Exit 0 on success, non-zero with diff/log on failure.
 
 ### When the loop breaks

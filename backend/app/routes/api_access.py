@@ -1,4 +1,5 @@
 import os
+import json
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,17 +9,20 @@ from app.db import get_connection, get_transaction
 from app.lib.auth import (
     Actor,
     DEFAULT_ORGANIZATION_ID,
-    anonymous_admin_if_public,
-    ensure_workspace_settings,
+    ensure_organization_settings,
     generate_token,
     get_optional_actor,
     is_workspace_admin,
+    now_ts,
     record_audit,
     require_marketplace_admin,
     require_workspace_admin,
     token_hash,
+    upsert_user,
 )
-from app.models import access_tokens, auth_providers, marketplace_role_grants, marketplaces, workspace_settings
+from app.lib.local_accounts import generate_temp_password, hash_password
+from app.lib.setup_state import is_required
+from app.models import access_tokens, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_settings, users
 from app.schemas import (
     AccessTokenCreate,
     AccessTokenCreatedOut,
@@ -28,6 +32,9 @@ from app.schemas import (
     AuthProviderUpdate,
     CurrentUserOut,
     MarketplaceGrantOut,
+    OrganizationUserCreate,
+    OrganizationUserCreatedOut,
+    OrganizationUserOut,
     PrincipalGrantIn,
     WorkspaceSettingsOut,
     WorkspaceSettingsUpdate,
@@ -38,21 +45,29 @@ router = APIRouter(prefix="/api", tags=["access"])
 
 @router.get("/me", response_model=CurrentUserOut)
 def me(actor: Actor | None = Depends(get_optional_actor)):
-    login_configured = False
-    if actor is None:
-        with get_connection() as conn:
-            login_configured = conn.execute(
-                select(auth_providers.c.id).where(auth_providers.c.enabled == 1)
-            ).one_or_none() is not None
-            bootstrap_admin = is_workspace_admin(conn, anonymous_admin_if_public(conn))
-        return {
-            "authenticated": False,
-            "workspaceAdmin": bootstrap_admin,
-            "organizationAdmin": bootstrap_admin,
-            "loginConfigured": login_configured,
-        }
     with get_connection() as conn:
+        settings = ensure_organization_settings(conn)
+        required = is_required(conn)
+        login_configured = conn.execute(
+            select(auth_providers.c.id).where(auth_providers.c.enabled == 1)
+        ).one_or_none() is not None
+        if actor is None:
+            return {
+                "authenticated": False,
+                "workspaceAdmin": False,
+                "organizationAdmin": False,
+                "loginConfigured": login_configured,
+                "bootstrapRequired": required,
+                "bootstrapCompleted": not required,
+                "accessMode": settings["access_mode"],
+                "marketplaceCreation": settings["marketplace_creation"],
+            }
         organization_admin = is_workspace_admin(conn, actor)
+        credential = conn.execute(
+            select(local_account_credentials.c.must_change_password).where(
+                local_account_credentials.c.user_id == actor.user_id
+            )
+        ).one_or_none()
         marketplace_admin_slugs = [
             row[0] for row in conn.execute(
                 select(marketplace_role_grants.c.marketplace_slug).where(
@@ -63,55 +78,49 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                 )
             ).all()
         ] if actor.user_id is not None else []
-        login_configured = conn.execute(
-            select(auth_providers.c.id).where(auth_providers.c.enabled == 1)
-        ).one_or_none() is not None
+        user_projection = {"id": actor.user_id, "email": actor.email, "displayName": actor.display_name, "provider": None}
         return {
             "authenticated": True,
             "id": actor.user_id,
             "email": actor.email,
             "displayName": actor.display_name,
+            "user": user_projection,
             "workspaceAdmin": organization_admin,
             "organizationAdmin": organization_admin,
             "marketplaceAdminSlugs": marketplace_admin_slugs,
-            "provider": "headers" if actor.user_id is not None else None,
+            "provider": None,
             "loginConfigured": login_configured,
+            "bootstrapRequired": required,
+            "bootstrapCompleted": not required,
+            "mustChangePassword": bool(credential and credential[0]),
+            "accessMode": settings["access_mode"],
+            "marketplaceCreation": settings["marketplace_creation"],
         }
 
 
 @router.get("/organization/settings", response_model=WorkspaceSettingsOut)
 def get_organization_settings():
     with get_transaction() as conn:
-        row = ensure_workspace_settings(conn)
+        row = ensure_organization_settings(conn)
         return {"accessMode": row["access_mode"], "marketplaceCreation": row["marketplace_creation"]}
-
-
-@router.get("/workspace/settings", response_model=WorkspaceSettingsOut)
-def get_workspace_settings_compat():
-    return get_organization_settings()
 
 
 @router.put("/organization/settings", response_model=WorkspaceSettingsOut)
 def update_organization_settings(body: WorkspaceSettingsUpdate, actor: Actor | None = Depends(get_optional_actor)):
     with get_transaction() as conn:
         require_workspace_admin(conn, actor)
-        current = ensure_workspace_settings(conn)
+        current = ensure_organization_settings(conn)
         values = {}
         if body.accessMode is not None:
             values["access_mode"] = body.accessMode
         if body.marketplaceCreation is not None:
-            values["marketplace_creation"] = "organization_admin" if body.marketplaceCreation == "workspace_admin" else body.marketplaceCreation
+            values["marketplace_creation"] = body.marketplaceCreation
         if values:
             values["updated_at"] = int(time.time())
-            conn.execute(update(workspace_settings).where(workspace_settings.c.id == 1).values(**values))
-            record_audit(conn, actor, "workspace_settings.update", "workspace", "settings", values)
+            conn.execute(update(organization_settings).where(organization_settings.c.id == 1).values(**values))
+            record_audit(conn, actor, "organization_settings.update", "workspace", "settings", values)
             current = {**current, **values}
         return {"accessMode": current["access_mode"], "marketplaceCreation": current["marketplace_creation"]}
-
-
-@router.put("/workspace/settings", response_model=WorkspaceSettingsOut)
-def update_workspace_settings_compat(body: WorkspaceSettingsUpdate, actor: Actor | None = Depends(get_optional_actor)):
-    return update_organization_settings(body, actor)
 
 
 @router.get("/organization/auth-providers", response_model=list[AuthProviderOut])
@@ -325,6 +334,64 @@ def revoke_access_token(token_id: int, actor: Actor | None = Depends(get_optiona
         })
 
 
+@router.get("/organization/users", response_model=list[OrganizationUserOut])
+def list_organization_users(actor: Actor | None = Depends(get_optional_actor)):
+    with get_connection() as conn:
+        require_workspace_admin(conn, actor)
+        rows = conn.execute(select(users).where(users.c.organization_id == DEFAULT_ORGANIZATION_ID).order_by(users.c.email)).mappings().all()
+        return [_user_out(conn, row) for row in rows]
+
+
+@router.post("/organization/users", response_model=OrganizationUserCreatedOut, status_code=201)
+def create_organization_user(body: OrganizationUserCreate, actor: Actor | None = Depends(get_optional_actor)):
+    now = now_ts()
+    temp_password = generate_temp_password()
+    with get_transaction() as conn:
+        require_workspace_admin(conn, actor)
+        existing = conn.execute(select(users.c.id).where(users.c.email == body.email.lower())).one_or_none()
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="User already exists")
+        new_actor = upsert_user(conn, "local", body.email.lower(), body.email.lower(), body.displayName)
+        conn.execute(insert(local_account_credentials).values(
+            user_id=new_actor.user_id,
+            password_hash=hash_password(temp_password),
+            must_change_password=1,
+            last_password_change=now,
+        ))
+        row = conn.execute(select(users).where(users.c.id == new_actor.user_id)).mappings().one()
+        record_audit(conn, actor, "user.create", "user", str(new_actor.user_id))
+        return {**_user_out(conn, row), "temporaryPassword": temp_password}
+
+
+@router.post("/organization/users/{user_id}/reset-password")
+def reset_organization_user_password(user_id: int, actor: Actor | None = Depends(get_optional_actor)):
+    now = now_ts()
+    temp_password = generate_temp_password()
+    with get_transaction() as conn:
+        require_workspace_admin(conn, actor)
+        user = conn.execute(select(users).where(users.c.id == user_id)).mappings().one_or_none()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        existing = conn.execute(select(local_account_credentials.c.user_id).where(local_account_credentials.c.user_id == user_id)).one_or_none()
+        values = {"password_hash": hash_password(temp_password), "must_change_password": 1, "last_password_change": now}
+        if existing is None:
+            conn.execute(insert(local_account_credentials).values(user_id=user_id, **values))
+        else:
+            conn.execute(update(local_account_credentials).where(local_account_credentials.c.user_id == user_id).values(**values))
+        record_audit(conn, actor, "user.reset_password", "user", str(user_id))
+        return {"temporaryPassword": temp_password}
+
+
+@router.post("/organization/users/{user_id}/disable", response_model=OrganizationUserOut)
+def disable_organization_user(user_id: int, actor: Actor | None = Depends(get_optional_actor)):
+    return _set_user_disabled(user_id, actor, True)
+
+
+@router.post("/organization/users/{user_id}/enable", response_model=OrganizationUserOut)
+def enable_organization_user(user_id: int, actor: Actor | None = Depends(get_optional_actor)):
+    return _set_user_disabled(user_id, actor, False)
+
+
 def _marketplace_exists_or_404(conn, slug: str) -> None:
     exists = conn.execute(select(marketplaces.c.slug).where(marketplaces.c.slug == slug)).one_or_none()
     if exists is None:
@@ -353,6 +420,35 @@ def _token_out(row) -> dict:
     }
 
 
+def _user_out(conn, row) -> dict:
+    cred = conn.execute(
+        select(local_account_credentials.c.must_change_password).where(local_account_credentials.c.user_id == row["id"])
+    ).one_or_none()
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "displayName": row["display_name"],
+        "provider": row["provider"],
+        "disabledAt": row["disabled_at"],
+        "mustChangePassword": bool(cred and cred[0]),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def _set_user_disabled(user_id: int, actor: Actor | None, disabled: bool) -> dict:
+    with get_transaction() as conn:
+        require_workspace_admin(conn, actor)
+        row = conn.execute(select(users).where(users.c.id == user_id)).mappings().one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        now = now_ts()
+        conn.execute(update(users).where(users.c.id == user_id).values(disabled_at=now if disabled else None, updated_at=now))
+        row = conn.execute(select(users).where(users.c.id == user_id)).mappings().one()
+        record_audit(conn, actor, "user.disable" if disabled else "user.enable", "user", str(user_id))
+        return _user_out(conn, row)
+
+
 def _provider_values(raw: dict, now: int) -> dict:
     mapping = {
         "slug": "slug",
@@ -368,10 +464,15 @@ def _provider_values(raw: dict, now: int) -> dict:
         "scopes": "scopes",
         "groupClaim": "group_claim",
         "allowedOrgs": "allowed_orgs",
+        "allowlist": "allowlist_json",
     }
     values = {column: raw[key] for key, column in mapping.items() if key in raw}
     if "enabled" in values:
         values["enabled"] = 1 if values["enabled"] else 0
+    if values.get("provider_type") == "trusted_headers":
+        values["provider_type"] = "trusted_header"
+    if "allowlist_json" in values:
+        values["allowlist_json"] = json.dumps(values["allowlist_json"] or {})
     if values:
         values["updated_at"] = now
     return values
@@ -395,6 +496,7 @@ def _provider_out(row) -> dict:
         "scopes": row["scopes"],
         "groupClaim": row["group_claim"],
         "allowedOrgs": row["allowed_orgs"],
+        "allowlist": json.loads(row["allowlist_json"] or "{}"),
         "loginUrl": f"/auth/login/{row['slug']}",
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],

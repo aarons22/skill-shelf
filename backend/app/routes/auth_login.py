@@ -4,13 +4,16 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import select, update
 
 from app.db import get_connection, get_transaction
 from app.lib.auth import DEFAULT_ORGANIZATION_ID, sync_header_groups, upsert_user
+from app.lib.local_accounts import hash_password, verify_password
+from app.lib.provider_allowlist import enforce
 from app.lib.session import COOKIE_NAME, STATE_COOKIE_NAME, read_payload, sign_payload
-from app.models import auth_providers
+from app.models import auth_providers, local_account_credentials, users
+from app.schemas import ChangePasswordIn, LoginLocalIn, PublicAuthProviderOut
 
 router = APIRouter(tags=["auth"])
 
@@ -24,7 +27,7 @@ def login_index():
                 auth_providers.c.enabled == 1,
             ).order_by(auth_providers.c.display_name)
         ).mappings().all()
-    if len(rows) == 1:
+    if len(rows) == 1 and rows[0]["provider_type"] not in {"local", "trusted_header", "trusted_headers"}:
         return RedirectResponse(f"/auth/login/{rows[0]['slug']}", status_code=302)
     return {
         "providers": [
@@ -34,15 +37,76 @@ def login_index():
     }
 
 
+@router.get("/api/auth/providers", response_model=list[PublicAuthProviderOut])
+def public_auth_providers():
+    with get_connection() as conn:
+        rows = conn.execute(
+            select(auth_providers).where(
+                auth_providers.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                auth_providers.c.enabled == 1,
+            ).order_by(auth_providers.c.display_name)
+        ).mappings().all()
+    return [_public_provider(row) for row in rows]
+
+
+@router.post("/auth/login/local")
+def login_local(body: LoginLocalIn, request: Request):
+    with get_connection() as conn:
+        user = conn.execute(
+            select(users).where(
+                users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                users.c.provider == "local",
+                users.c.provider_subject == body.email.lower(),
+            )
+        ).mappings().one_or_none()
+        if user is None:
+            raise HTTPException(status_code=401, detail="Sign-in failed")
+        if user["disabled_at"] is not None:
+            raise HTTPException(status_code=403, detail="User is disabled")
+        credential = conn.execute(
+            select(local_account_credentials).where(local_account_credentials.c.user_id == user["id"])
+        ).mappings().one_or_none()
+        if credential is None or not verify_password(body.password, credential["password_hash"]):
+            raise HTTPException(status_code=401, detail="Sign-in failed")
+    response = JSONResponse({"mustChangePassword": bool(credential["must_change_password"])})
+    _set_session_cookie(response, request, user["id"], "local")
+    return response
+
+
+@router.post("/auth/change-password")
+def change_password(body: ChangePasswordIn, request: Request):
+    payload = read_payload(request.cookies.get(COOKIE_NAME))
+    if not payload or not payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = int(payload["user_id"])
+    with get_transaction() as conn:
+        credential = conn.execute(
+            select(local_account_credentials).where(local_account_credentials.c.user_id == user_id)
+        ).mappings().one_or_none()
+        if credential is None or not verify_password(body.currentPassword, credential["password_hash"]):
+            raise HTTPException(status_code=401, detail="Sign-in failed")
+        conn.execute(
+            update(local_account_credentials).where(local_account_credentials.c.user_id == user_id).values(
+                password_hash=hash_password(body.newPassword),
+                must_change_password=0,
+                last_password_change=int(__import__("time").time()),
+            )
+        )
+    return {"ok": True}
+
+
 @router.get("/auth/login/{provider_slug}")
 def start_login(provider_slug: str, request: Request):
     provider = _provider_or_404(provider_slug)
     if not provider["enabled"]:
         raise HTTPException(status_code=404, detail="Auth provider not found")
+    if provider["provider_type"] in {"local", "trusted_header", "trusted_headers"}:
+        raise HTTPException(status_code=400, detail="This provider does not use redirect login")
     secret = os.getenv(provider["client_secret_env_var"] or "")
     if not provider["client_id"] or not secret:
         raise HTTPException(status_code=400, detail="Auth provider is missing client ID or configured secret env var")
     state = secrets.token_urlsafe(24)
+    return_to = request.query_params.get("return_to") or "/manage"
     authorization_url = _authorization_url(provider)
     callback_url = str(request.url_for("auth_callback", provider_slug=provider_slug))
     params = {
@@ -55,7 +119,7 @@ def start_login(provider_slug: str, request: Request):
     response = RedirectResponse(f"{authorization_url}?{urlencode(params)}", status_code=302)
     response.set_cookie(
         STATE_COOKIE_NAME,
-        sign_payload({"state": state, "provider": provider_slug}, max_age_seconds=600),
+        sign_payload({"state": state, "provider": provider_slug, "return_to": return_to}, max_age_seconds=600),
         httponly=True,
         samesite="lax",
         secure=request.url.scheme == "https",
@@ -78,18 +142,12 @@ def auth_callback(provider_slug: str, request: Request, code: str, state: str, r
     token_payload = _exchange_code(provider, code, callback_url, secret)
     profile = _load_profile(provider, token_payload)
     with get_transaction() as conn:
+        enforce(provider, profile, profile["groups"])
         actor = upsert_user(conn, provider_slug, profile["subject"], profile["email"], profile["name"])
         sync_header_groups(conn, actor, provider_slug, profile["groups"])
 
-    redirect = RedirectResponse("/manage", status_code=302)
-    redirect.set_cookie(
-        COOKIE_NAME,
-        sign_payload({"user_id": actor.user_id, "provider": provider_slug}, max_age_seconds=60 * 60 * 24 * 14),
-        httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
-        max_age=60 * 60 * 24 * 14,
-    )
+    redirect = RedirectResponse(state_payload.get("return_to") or "/manage", status_code=302)
+    _set_session_cookie(redirect, request, actor.user_id, provider_slug)
     redirect.delete_cookie(STATE_COOKIE_NAME)
     return redirect
 
@@ -180,7 +238,7 @@ def _load_profile(provider: dict, token_payload: dict) -> dict:
     data = r.json()
     if provider["provider_type"] == "github":
         email = data.get("email") or f"{data['id']}+github@users.noreply.github.com"
-        return {"subject": str(data["id"]), "email": email, "name": data.get("name") or data.get("login") or email, "groups": []}
+        return {"subject": str(data["id"]), "email": email, "name": data.get("name") or data.get("login") or email, "username": data.get("login"), "groups": []}
     email = data.get("email")
     subject = data.get("sub")
     if not email or not subject:
@@ -190,3 +248,31 @@ def _load_profile(provider: dict, token_payload: dict) -> dict:
     if isinstance(groups, str):
         groups = [groups]
     return {"subject": str(subject), "email": email, "name": data.get("name") or email, "groups": [str(g) for g in groups]}
+
+
+def _public_provider(row) -> dict:
+    provider_type = row["provider_type"]
+    if provider_type == "local":
+        kind = "credentials"
+    elif provider_type in {"trusted_header", "trusted_headers"}:
+        kind = "trusted_header"
+    else:
+        kind = "redirect"
+    return {
+        "slug": row["slug"],
+        "displayName": row["display_name"],
+        "providerType": provider_type,
+        "kind": kind,
+        "loginUrl": f"/auth/login/{row['slug']}",
+    }
+
+
+def _set_session_cookie(response: Response, request: Request, user_id: int, provider: str) -> None:
+    response.set_cookie(
+        COOKIE_NAME,
+        sign_payload({"user_id": user_id, "provider": provider}, max_age_seconds=60 * 60 * 24 * 14),
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        max_age=60 * 60 * 24 * 14,
+    )
