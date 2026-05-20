@@ -24,24 +24,20 @@ Open the Vite dev server at:
 http://127.0.0.1:5173/
 ```
 
-The dev server proxies `/api/*` and `/m/*` to the backend on port `3000`.
+The dev server proxies `/api/*`, `/auth/*`, and `/m/*` to the backend on port `3000`.
 
 ## Docker Hot Reload
 
-To run both services in Docker with local source mounts and hot reload:
+`docker compose up` automatically merges `docker-compose.override.yml`, which enables hot reload for both services:
 
 ```sh
 cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+docker compose up --build
 ```
 
-Open the Vite dev server at:
+Open at `http://127.0.0.1/`. The override runs `uvicorn --reload` for backend changes and Vite HMR for frontend changes. Source files are bind-mounted into the containers; `node_modules` is preserved in a named volume so it is not clobbered by the mount.
 
-```text
-http://127.0.0.1/
-```
-
-The dev overlay runs `uvicorn --reload` for backend changes and Vite HMR for frontend changes. It keeps the production compose file unchanged, so production deployments can continue using:
+For a production build (nginx-served static assets, no mounts), exclude the override explicitly:
 
 ```sh
 docker compose -f docker-compose.yml up --build

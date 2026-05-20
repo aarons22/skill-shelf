@@ -8,8 +8,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: "0.0.0.0",
+    watch: { usePolling: true },
     proxy: {
       "/api": apiProxyTarget,
+      "/auth": apiProxyTarget,
       "/m/": apiProxyTarget,
     },
   },
