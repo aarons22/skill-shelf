@@ -27,15 +27,7 @@ export default function BrowseMarketplaces() {
         ) : marketplaces.length === 0 ? (
           <div className="py-16 text-center">
             <p className="mb-2 text-slate-700">No marketplaces yet.</p>
-            <p className="mb-6 text-sm text-slate-500">
-              Create your first marketplace to start sharing plugins with your team.
-            </p>
-            <Link
-              to="/manage/marketplaces/new"
-              className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              Create a marketplace
-            </Link>
+            <p className="text-sm text-slate-500">Check back later or ask your administrator to create one.</p>
           </div>
         ) : (
           <>

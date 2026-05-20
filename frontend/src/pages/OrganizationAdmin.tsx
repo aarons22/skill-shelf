@@ -42,21 +42,59 @@ interface OrgUser {
 
 type Tab = "access" | "auth" | "users" | "tokens";
 
-const emptyProvider = {
-  slug: "github",
-  displayName: "GitHub",
-  providerType: "github" as AuthProvider["providerType"],
-  enabled: true,
-  clientId: "",
-  clientSecretEnvVar: "SKILLSHELF_GITHUB_CLIENT_SECRET",
-  issuerUrl: "",
-  authorizationUrl: "",
-  tokenUrl: "",
-  userinfoUrl: "",
-  scopes: "read:user user:email",
-  groupClaim: "",
-  allowedOrgs: "",
-};
+function emptyProviderFor(type: "github" | "oidc" | "trusted_header") {
+  if (type === "github") {
+    return {
+      slug: "github",
+      displayName: "GitHub",
+      providerType: "github" as const,
+      enabled: true,
+      clientId: "",
+      clientSecretEnvVar: "SKILLSHELF_GITHUB_CLIENT_SECRET",
+      issuerUrl: "",
+      authorizationUrl: "",
+      tokenUrl: "",
+      userinfoUrl: "",
+      scopes: "read:user user:email",
+      groupClaim: "",
+      allowedOrgs: "",
+    };
+  }
+  if (type === "oidc") {
+    return {
+      slug: "oidc",
+      displayName: "SSO",
+      providerType: "oidc" as const,
+      enabled: true,
+      clientId: "",
+      clientSecretEnvVar: "SKILLSHELF_OIDC_CLIENT_SECRET",
+      issuerUrl: "",
+      authorizationUrl: "",
+      tokenUrl: "",
+      userinfoUrl: "",
+      scopes: "openid email profile",
+      groupClaim: "",
+      allowedOrgs: "",
+    };
+  }
+  return {
+    slug: "trusted-header",
+    displayName: "Trusted proxy",
+    providerType: "trusted_header" as const,
+    enabled: true,
+    clientId: "",
+    clientSecretEnvVar: "",
+    issuerUrl: "",
+    authorizationUrl: "",
+    tokenUrl: "",
+    userinfoUrl: "",
+    scopes: "",
+    groupClaim: "",
+    allowedOrgs: "",
+  };
+}
+
+type ProviderFormState = ReturnType<typeof emptyProviderFor>;
 
 export default function OrganizationAdmin() {
   const location = useLocation();
@@ -67,15 +105,16 @@ export default function OrganizationAdmin() {
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserName, setNewUserName] = useState("");
   const [tempPassword, setTempPassword] = useState("");
-  const [tab, setTab] = useState<Tab>(() => {
+  const [message, setMessage] = useState("");
+  const [providerForm, setProviderForm] = useState<ProviderFormState | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const tab: Tab = (() => {
     if (location.pathname.endsWith("/auth")) return "auth";
     if (location.pathname.endsWith("/users")) return "users";
     if (location.pathname.endsWith("/tokens")) return "tokens";
     return "access";
-  });
-  const [message, setMessage] = useState("");
-  const [providerForm, setProviderForm] = useState(emptyProvider);
-  const [loading, setLoading] = useState(true);
+  })();
 
   const load = async () => {
     setLoading(true);
@@ -115,6 +154,7 @@ export default function OrganizationAdmin() {
 
   const saveProvider = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!providerForm) return;
     setMessage("");
     const r = await fetch("/api/organization/auth-providers", {
       method: "POST",
@@ -123,7 +163,7 @@ export default function OrganizationAdmin() {
     });
     setMessage(r.ok ? "Provider saved." : "Could not save provider.");
     if (r.ok) {
-      setProviderForm(emptyProvider);
+      setProviderForm(null);
       load();
     }
   };
@@ -158,20 +198,27 @@ export default function OrganizationAdmin() {
     );
   }
 
+  const TABS: { id: Tab; label: string; path: string }[] = [
+    { id: "access", label: "Access", path: "/organization" },
+    { id: "auth", label: "Auth", path: "/organization/auth" },
+    { id: "users", label: "Users", path: "/organization/users" },
+    { id: "tokens", label: "Tokens", path: "/organization/tokens" },
+  ];
+
   return (
     <div>
       <main className="mx-auto max-w-5xl px-4 py-6">
         <h1 className="mb-1 text-lg font-semibold text-slate-950">Organization settings</h1>
         <p className="mb-6 text-xs text-slate-500">Access, login, and tenant-wide controls</p>
         <div className="mb-6 flex gap-6 border-b border-slate-200">
-          {(["access", "auth", "users", "tokens"] as Tab[]).map((item) => (
-            <button
-              key={item}
-              onClick={() => setTab(item)}
-              className={`pb-2 text-sm font-medium capitalize ${tab === item ? "border-b-2 border-slate-950 text-slate-950" : "text-slate-500 hover:text-slate-900"}`}
+          {TABS.map(({ id, label, path }) => (
+            <Link
+              key={id}
+              to={path}
+              className={`pb-2 text-sm font-medium ${tab === id ? "border-b-2 border-slate-950 text-slate-950" : "text-slate-500 hover:text-slate-900"}`}
             >
-              {item}
-            </button>
+              {label}
+            </Link>
           ))}
         </div>
 
@@ -190,7 +237,7 @@ export default function OrganizationAdmin() {
               </label>
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">Marketplace creation</span>
-                  <select value={settings.marketplaceCreation} onChange={(e) => saveSettings({ marketplaceCreation: e.target.value as OrganizationSettings["marketplaceCreation"] })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                <select value={settings.marketplaceCreation} onChange={(e) => saveSettings({ marketplaceCreation: e.target.value as OrganizationSettings["marketplaceCreation"] })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
                   <option value="authenticated">Authenticated users</option>
                   <option value="organization_admin">Organization admins</option>
                 </select>
@@ -231,31 +278,49 @@ export default function OrganizationAdmin() {
               )}
             </section>
 
-            <form onSubmit={saveProvider} className="rounded-lg border border-slate-200 bg-white p-6">
+            <div className="rounded-lg border border-slate-200 bg-white p-6">
               <h2 className="mb-4 text-sm font-semibold text-slate-800">Add login provider</h2>
-              <div className="space-y-4">
-                <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => ({ ...f, slug: v }))} />
-                <Field label="Display name" value={providerForm.displayName} onChange={(v) => setProviderForm((f) => ({ ...f, displayName: v }))} />
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-slate-700">Provider type</span>
-                  <select value={providerForm.providerType} onChange={(e) => setProviderForm((f) => ({ ...f, providerType: e.target.value as AuthProvider["providerType"], scopes: e.target.value === "github" ? "read:user user:email" : "openid email profile" }))} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-                    <option value="github">GitHub</option>
-                    <option value="oidc">Generic OIDC / SSO</option>
-                    <option value="trusted_header">Trusted proxy headers</option>
-                  </select>
-                </label>
-                <Field label="Client ID" value={providerForm.clientId} onChange={(v) => setProviderForm((f) => ({ ...f, clientId: v }))} />
-                <Field label="Client secret env var" value={providerForm.clientSecretEnvVar} onChange={(v) => setProviderForm((f) => ({ ...f, clientSecretEnvVar: v }))} />
-                {providerForm.providerType === "oidc" && (
-                  <>
-                    <Field label="Issuer URL" value={providerForm.issuerUrl} onChange={(v) => setProviderForm((f) => ({ ...f, issuerUrl: v }))} />
-                    <Field label="Group claim" value={providerForm.groupClaim} onChange={(v) => setProviderForm((f) => ({ ...f, groupClaim: v }))} />
-                  </>
-                )}
-                <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => ({ ...f, scopes: v }))} />
-                <button className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save provider</button>
-              </div>
-            </form>
+              {providerForm === null ? (
+                <div className="space-y-2">
+                  {(["github", "oidc", "trusted_header"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setProviderForm(emptyProviderFor(type))}
+                      className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50"
+                    >
+                      {type === "github" && "Configure GitHub"}
+                      {type === "oidc" && "Configure OIDC / SSO"}
+                      {type === "trusted_header" && "Configure trusted proxy headers"}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <form onSubmit={saveProvider} className="space-y-4">
+                  <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
+                  <Field label="Display name" value={providerForm.displayName} onChange={(v) => setProviderForm((f) => f && ({ ...f, displayName: v }))} />
+                  {(providerForm.providerType === "github" || providerForm.providerType === "oidc") && (
+                    <>
+                      <Field label="Client ID" value={providerForm.clientId} onChange={(v) => setProviderForm((f) => f && ({ ...f, clientId: v }))} />
+                      <Field label="Client secret env var" value={providerForm.clientSecretEnvVar} onChange={(v) => setProviderForm((f) => f && ({ ...f, clientSecretEnvVar: v }))} />
+                    </>
+                  )}
+                  {providerForm.providerType === "oidc" && (
+                    <>
+                      <Field label="Issuer URL" value={providerForm.issuerUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, issuerUrl: v }))} />
+                      <Field label="Group claim" value={providerForm.groupClaim} onChange={(v) => setProviderForm((f) => f && ({ ...f, groupClaim: v }))} />
+                    </>
+                  )}
+                  {providerForm.providerType !== "trusted_header" && (
+                    <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => f && ({ ...f, scopes: v }))} />
+                  )}
+                  <div className="flex gap-3 pt-1">
+                    <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save provider</button>
+                    <button type="button" onClick={() => setProviderForm(null)} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         )}
 
