@@ -94,6 +94,16 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                 )
             ).all()
         ] if actor.user_id is not None else []
+        marketplace_contributor_slugs = [
+            row[0] for row in conn.execute(
+                select(marketplace_role_grants.c.marketplace_slug).where(
+                    marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
+                    marketplace_role_grants.c.principal_type == "user",
+                    marketplace_role_grants.c.principal_id == actor.user_id,
+                    marketplace_role_grants.c.role == "marketplace_contributor",
+                )
+            ).all()
+        ] if actor.user_id is not None else []
         user_projection = {"id": actor.user_id, "email": actor.email, "displayName": actor.display_name, "provider": None}
         return {
             "authenticated": True,
@@ -105,6 +115,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
             "organizationAdmin": organization_admin,
             "marketplaceAdminSlugs": marketplace_admin_slugs,
             "marketplaceMaintainerSlugs": marketplace_maintainer_slugs,
+            "marketplaceContributorSlugs": marketplace_contributor_slugs,
             "provider": None,
             "loginConfigured": login_configured,
             "bootstrapRequired": required,
@@ -375,7 +386,7 @@ def update_marketplace_user_role(
             marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
             marketplace_role_grants.c.principal_type == "user",
             marketplace_role_grants.c.principal_id == user_id,
-            marketplace_role_grants.c.role.in_(["viewer", "marketplace_maintainer", "marketplace_admin"]),
+            marketplace_role_grants.c.role.in_(["viewer", "marketplace_contributor", "marketplace_maintainer", "marketplace_admin"]),
         ))
         if body.marketplaceRole != "none":
             conn.execute(insert(marketplace_role_grants).values(
@@ -614,7 +625,7 @@ def _marketplace_role_for_user(conn, marketplace_slug: str, user_id: int) -> str
             )
         ).all()
     }
-    for role in ("marketplace_admin", "marketplace_maintainer", "viewer"):
+    for role in ("marketplace_admin", "marketplace_maintainer", "marketplace_contributor", "viewer"):
         if role in roles:
             return role
     return "none"

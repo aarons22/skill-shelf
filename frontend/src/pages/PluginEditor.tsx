@@ -6,6 +6,7 @@ import HookHandlerEditor, { HookHandler, defaultHookHandler, hookHandlerToPayloa
 import McpServerConfigEditor, { McpServerConfig, defaultMcpConfig, mcpConfigToPayload } from "../components/McpServerConfigEditor";
 import AgentConfigEditor, { AgentConfig, agentConfigToPayload } from "../components/AgentConfigEditor";
 import PluginSettingsEditor from "../components/PluginSettingsEditor";
+import { useMe } from "../lib/auth";
 
 type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "monitors";
 
@@ -48,6 +49,7 @@ const CONSUMER_COLORS: Record<string, string> = {
 export default function PluginEditor() {
   const { slug, pluginSlug } = useParams<{ slug: string; pluginSlug?: string }>();
   const navigate = useNavigate();
+  const { me } = useMe();
   const isEditing = Boolean(pluginSlug);
   const detailPath = useMemo(() => `/manage/marketplaces/${slug ?? ""}`, [slug]);
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
@@ -148,6 +150,10 @@ export default function PluginEditor() {
     setError("");
   }, []);
 
+  const canDeleteContent = Boolean(
+    slug && me && (me.organizationAdmin || me.marketplaceAdminSlugs.includes(slug) || me.marketplaceMaintainerSlugs.includes(slug)),
+  );
+
   if (loading) return <div className="min-h-screen bg-slate-50 p-8 text-sm text-slate-500">Loading...</div>;
   if (!marketplace) return null;
 
@@ -190,6 +196,7 @@ export default function PluginEditor() {
                 onDelete={(item) => deleteComponent(type, item)}
                 slug={slug!}
                 pluginSlug={pluginSlug}
+                canDelete={canDeleteContent}
               />
             ))}
 
@@ -231,10 +238,11 @@ async function saveSettings(slug: string, pluginSlug: string, value: Record<stri
   if (!res.ok) setError("Could not save settings.");
 }
 
-function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, pluginSlug }: {
+function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, pluginSlug, canDelete }: {
   title: string; items: Item[]; path: string; docUrl: string;
   onAdd: () => void; onDelete: (slug: string) => void;
   slug: string; pluginSlug: string;
+  canDelete: boolean;
 }) {
   const consumers = CONSUMER_SUPPORT[path as ComponentType] ?? [];
   return (
@@ -270,9 +278,11 @@ function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, plu
                 >
                   Edit
                 </Link>
-                <button type="button" onClick={() => onDelete(item.slug)} className="text-xs font-medium text-red-600 hover:text-red-800">
-                  Delete
-                </button>
+                {canDelete && (
+                  <button type="button" onClick={() => onDelete(item.slug)} className="text-xs font-medium text-red-600 hover:text-red-800">
+                    Delete
+                  </button>
+                )}
               </div>
             </li>
           ))}
@@ -392,4 +402,3 @@ function AddMonitorForm({ onSave, onClose, error }: FormProps) {
     </form>
   );
 }
-

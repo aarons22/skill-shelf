@@ -279,6 +279,7 @@ class CurrentUserOut(BaseModel):
     organizationAdmin: bool = False
     marketplaceAdminSlugs: list[str] = Field(default_factory=list)
     marketplaceMaintainerSlugs: list[str] = Field(default_factory=list)
+    marketplaceContributorSlugs: list[str] = Field(default_factory=list)
     provider: Optional[str] = None
     loginConfigured: bool = False
     bootstrapRequired: bool = False
@@ -302,7 +303,7 @@ class WorkspaceSettingsUpdate(BaseModel):
 class PrincipalGrantIn(BaseModel):
     principalType: Literal["user", "group"]
     principalId: int
-    role: Literal["marketplace_admin", "marketplace_maintainer", "viewer"]
+    role: Literal["marketplace_admin", "marketplace_maintainer", "marketplace_contributor", "viewer"]
 
 
 class MarketplaceGrantOut(BaseModel):
@@ -318,12 +319,12 @@ class MarketplaceUserOut(BaseModel):
     email: str
     displayName: str
     provider: str
-    marketplaceRole: Literal["none", "viewer", "marketplace_maintainer", "marketplace_admin"] = "none"
+    marketplaceRole: Literal["none", "viewer", "marketplace_contributor", "marketplace_maintainer", "marketplace_admin"] = "none"
     isOwner: bool = False
 
 
 class MarketplaceUserRoleUpdate(BaseModel):
-    marketplaceRole: Literal["none", "viewer", "marketplace_maintainer", "marketplace_admin"]
+    marketplaceRole: Literal["none", "viewer", "marketplace_contributor", "marketplace_maintainer", "marketplace_admin"]
 
 
 class AccessTokenCreate(BaseModel):

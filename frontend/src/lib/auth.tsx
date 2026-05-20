@@ -10,6 +10,7 @@ export interface Me {
   workspaceAdmin?: boolean;
   marketplaceAdminSlugs: string[];
   marketplaceMaintainerSlugs: string[];
+  marketplaceContributorSlugs: string[];
   loginConfigured: boolean;
   bootstrapRequired: boolean;
   bootstrapCompleted: boolean;

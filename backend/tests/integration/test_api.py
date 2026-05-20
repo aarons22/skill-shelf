@@ -449,6 +449,53 @@ def test_marketplace_admin_can_assign_user_marketplace_roles(client):
     assert "owner" in last_admin.json()["detail"].lower()
 
 
+def test_marketplace_contributor_can_write_but_not_delete_content(client):
+    marketplace = client.post("/api/marketplaces", json={"displayName": "Contributor Team"})
+    assert marketplace.status_code == 201
+    slug = marketplace.json()["slug"]
+    created = client.post("/api/organization/users", json={
+        "email": "writer@example.com",
+        "displayName": "Writer",
+    })
+    assert created.status_code == 201
+    user = created.json()
+    grant = client.put(f"/api/marketplaces/{slug}/users/{user['id']}/role", json={
+        "marketplaceRole": "marketplace_contributor",
+    })
+    assert grant.status_code == 200
+    assert grant.json()["marketplaceRole"] == "marketplace_contributor"
+
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={
+        "email": "writer@example.com",
+        "password": user["temporaryPassword"],
+    }).status_code == 200
+    assert client.post("/auth/change-password", json={
+        "current_password": user["temporaryPassword"],
+        "new_password": "writer-pass-1234",
+    }).status_code == 200
+    me = client.get("/api/me").json()
+    assert slug in me["marketplaceContributorSlugs"]
+
+    plugin = client.post(f"/api/marketplaces/{slug}/plugins", json={
+        "displayName": "Contributor Plugin",
+        "description": "Created by a contributor",
+    })
+    assert plugin.status_code == 201
+    plugin_slug = plugin.json()["slug"]
+    assert client.put(f"/api/marketplaces/{slug}/plugins/{plugin_slug}", json={
+        "description": "Edited by a contributor",
+    }).status_code == 200
+    skill = client.post(f"/api/marketplaces/{slug}/plugins/{plugin_slug}/skills", json={
+        "displayName": "Contributor Skill",
+        "description": "Added by a contributor",
+        "content": "Help the team contribute.",
+    })
+    assert skill.status_code == 201
+    assert client.delete(f"/api/marketplaces/{slug}/plugins/{plugin_slug}").status_code == 403
+    assert client.delete(f"/api/marketplaces/{slug}/plugins/{plugin_slug}/skills/{skill.json()['slug']}").status_code == 403
+
+
 def test_marketplace_admin_cannot_manage_organization_settings_in_authenticated_mode(client):
     assert client.put("/api/organization/settings", json={
         "accessMode": "authenticated",

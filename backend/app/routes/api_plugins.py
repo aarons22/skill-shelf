@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, func, insert, select, update
 
 from app.db import get_connection, get_transaction
-from app.lib.auth import public_read_dependencies, record_audit, require_marketplace_read, require_marketplace_write
+from app.lib.auth import public_read_dependencies, record_audit, require_marketplace_maintain, require_marketplace_read, require_marketplace_write
 from app.lib import git_store, write_path
 from app.lib.slug import make_slug
 from app.models import (
@@ -263,7 +263,7 @@ def delete_plugin(marketplace_slug: str, plugin_slug: str, request: Request):
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
-        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
+        require_marketplace_maintain(conn, _actor(request), marketplace_slug)
         removal = write_path.remove_plugin_files(plugin_slug, conn, marketplace_slug)
     try:
         with get_transaction() as conn:
@@ -444,7 +444,7 @@ def delete_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
-        require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
+        require_marketplace_maintain(conn, _actor(request), marketplace_slug)
         existing = conn.execute(
             select(skills.c.slug).where(
                 skills.c.marketplace_slug == marketplace_slug,
@@ -812,7 +812,7 @@ def _delete_component(
     with get_connection() as conn:
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
-        require_marketplace_write(conn, _actor(request) if request else None, marketplace_slug, plugin_slug)
+        require_marketplace_maintain(conn, _actor(request) if request else None, marketplace_slug)
         existing = conn.execute(select(table.c.slug).where(
             table.c.marketplace_slug == marketplace_slug,
             table.c.plugin_slug == plugin_slug,

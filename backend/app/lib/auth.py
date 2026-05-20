@@ -31,6 +31,7 @@ DEFAULT_ORGANIZATION_ID = 1
 ORGANIZATION_ADMIN = "organization_admin"
 MARKETPLACE_ADMIN = "marketplace_admin"
 MARKETPLACE_MAINTAINER = "marketplace_maintainer"
+MARKETPLACE_CONTRIBUTOR = "marketplace_contributor"
 PLUGIN_MAINTAINER = "plugin_maintainer"
 VIEWER = "viewer"
 
@@ -406,7 +407,7 @@ def has_marketplace_role(conn, actor: Actor | None, marketplace_slug: str, roles
 def has_plugin_role(conn, actor: Actor | None, marketplace_slug: str, plugin_slug: str, roles: set[str]) -> bool:
     if actor is None:
         return False
-    if has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER}):
+    if has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR}):
         return True
     if actor.user_id is None:
         return False
@@ -461,8 +462,16 @@ def require_marketplace_write(conn, actor: Actor | None, marketplace_slug: str, 
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     if plugin_slug and has_plugin_role(conn, actor, marketplace_slug, plugin_slug, {PLUGIN_MAINTAINER}):
         return actor
-    if not has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER}):
+    if not has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR}):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Marketplace write access required")
+    return actor
+
+
+def require_marketplace_maintain(conn, actor: Actor | None, marketplace_slug: str) -> Actor:
+    if actor is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    if not has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER}):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Marketplace maintainer access required")
     return actor
 
 
@@ -488,9 +497,9 @@ def can_read_marketplace(conn, actor: Actor | None, marketplace_slug: str, read_
     if settings["access_mode"] == "authenticated":
         row = conn.execute(select(marketplaces.c.visibility).where(marketplaces.c.slug == marketplace_slug)).one_or_none()
         if row and row[0] == "restricted":
-            return has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, VIEWER})
+            return has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR, VIEWER})
         return True
-    return has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, VIEWER})
+    return has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR, VIEWER})
 
 
 def require_marketplace_read(conn, actor: Actor | None, marketplace_slug: str, read_token: ReadToken | None = None) -> None:
@@ -511,11 +520,11 @@ def visible_marketplace_condition(conn, actor: Actor | None):
             return None
         return or_(
             marketplaces.c.visibility == "workspace",
-            marketplaces.c.slug.in_(_granted_marketplace_slugs(conn, actor, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, VIEWER})),
+            marketplaces.c.slug.in_(_granted_marketplace_slugs(conn, actor, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR, VIEWER})),
         )
     if is_workspace_admin(conn, actor):
         return None
-    return marketplaces.c.slug.in_(_granted_marketplace_slugs(conn, actor, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, VIEWER}))
+    return marketplaces.c.slug.in_(_granted_marketplace_slugs(conn, actor, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR, VIEWER}))
 
 
 def _granted_marketplace_slugs(conn, actor: Actor, roles: set[str]) -> list[str]:

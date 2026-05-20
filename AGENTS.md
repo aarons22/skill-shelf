@@ -344,7 +344,7 @@ All under `/api`, JSON in / JSON out. Access is controlled by organization mode 
 | `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
 | `GET/POST/DELETE` | `/api/access-tokens` | Scoped read token lifecycle |
 
-Roles are `organization_admin`, `marketplace_admin`, `marketplace_maintainer`, optional `plugin_maintainer`, and `viewer`. In `public` mode, anonymous users can read marketplaces and smart-HTTP repos, but writes still require a real authenticated user with the right grant. In `authenticated` mode, organization-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
+Roles are `organization_admin`, `marketplace_admin`, `marketplace_maintainer`, `marketplace_contributor`, optional `plugin_maintainer`, and `viewer`. `viewer` is read-only for restricted marketplaces, `marketplace_contributor` can create and edit marketplace plugins/components, `marketplace_maintainer` can also delete marketplace plugins/components, and `marketplace_admin` manages marketplace settings, people, tokens, and deletion. In `public` mode, anonymous users can read marketplaces and smart-HTTP repos, but writes still require a real authenticated user with the right grant. In `authenticated` mode, organization-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
 
 Lifecycle phases:
 - **Pre-setup**: `organizations.bootstrap_completed_at IS NULL`; `/setup` is open and the first successful `POST /api/organization/setup` creates the initial auth provider and organization admin. A concurrent second setup returns 409.

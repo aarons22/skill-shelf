@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CopyLine from "../components/CopyLine";
+import { useMe } from "../lib/auth";
 
 interface Marketplace {
   slug: string;
@@ -30,7 +31,7 @@ interface MarketplaceUser {
   email: string;
   displayName: string;
   provider: string;
-  marketplaceRole: "none" | "viewer" | "marketplace_maintainer" | "marketplace_admin";
+  marketplaceRole: "none" | "viewer" | "marketplace_contributor" | "marketplace_maintainer" | "marketplace_admin";
   isOwner: boolean;
 }
 
@@ -39,6 +40,7 @@ type Tab = "plugins" | "settings";
 export default function MarketplaceDetail() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { me } = useMe();
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [users, setUsers] = useState<MarketplaceUser[]>([]);
@@ -53,7 +55,7 @@ export default function MarketplaceDetail() {
   const [createdToken, setCreatedToken] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [userSearchResults, setUserSearchResults] = useState<MarketplaceUser[]>([]);
-  const [newUserRole, setNewUserRole] = useState<MarketplaceUser["marketplaceRole"]>("viewer");
+  const [newUserRole, setNewUserRole] = useState<MarketplaceUser["marketplaceRole"]>("marketplace_contributor");
 
   const load = async () => {
     setLoading(true);
@@ -76,6 +78,19 @@ export default function MarketplaceDetail() {
   };
 
   useEffect(() => { load(); }, [slug]);
+
+  const isMarketplaceAdmin = Boolean(
+    marketplace && me && (me.organizationAdmin || me.marketplaceAdminSlugs.includes(marketplace.slug)),
+  );
+  const canDeleteContent = Boolean(
+    marketplace && me && (isMarketplaceAdmin || me.marketplaceMaintainerSlugs.includes(marketplace.slug)),
+  );
+
+  useEffect(() => {
+    if (tab === "settings" && marketplace && !isMarketplaceAdmin) {
+      setTab("plugins");
+    }
+  }, [tab, marketplace, isMarketplaceAdmin]);
 
   useEffect(() => {
     const query = userSearch.trim();
@@ -143,7 +158,7 @@ export default function MarketplaceDetail() {
     await handleUpdateUserRole(user, newUserRole);
     setUserSearch("");
     setUserSearchResults([]);
-    setNewUserRole("viewer");
+    setNewUserRole("marketplace_contributor");
   };
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
@@ -169,7 +184,7 @@ export default function MarketplaceDetail() {
         </div>
 
         <div className="mb-6 flex gap-6 border-b border-slate-200">
-          {(["plugins", "settings"] as Tab[]).map((item) => (
+          {(["plugins", ...(isMarketplaceAdmin ? ["settings"] : [])] as Tab[]).map((item) => (
             <button
               key={item}
               onClick={() => setTab(item)}
@@ -213,7 +228,9 @@ export default function MarketplaceDetail() {
                       </div>
                       <div className="flex shrink-0 gap-3">
                         <Link to={`/manage/marketplaces/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
-                        <button onClick={() => handleDeletePlugin(plugin.slug)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
+                        {canDeleteContent && (
+                          <button onClick={() => handleDeletePlugin(plugin.slug)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -259,7 +276,7 @@ export default function MarketplaceDetail() {
                       onChange={(e) => setNewUserRole(e.target.value as MarketplaceUser["marketplaceRole"])}
                       className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
                     >
-                      <option value="viewer">Contributor</option>
+                      <option value="marketplace_contributor">Contributor</option>
                       <option value="marketplace_maintainer">Maintainer</option>
                       <option value="marketplace_admin">Admin</option>
                     </select>
@@ -308,7 +325,8 @@ export default function MarketplaceDetail() {
                           aria-label={`Marketplace role for ${user.displayName}`}
                         >
                           <option value="none">No access</option>
-                          <option value="viewer">Contributor</option>
+                          <option value="viewer">Viewer</option>
+                          <option value="marketplace_contributor">Contributor</option>
                           <option value="marketplace_maintainer">Maintainer</option>
                           <option value="marketplace_admin">Admin</option>
                         </select>
