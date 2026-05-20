@@ -36,6 +36,7 @@ interface MarketplaceUser {
 }
 
 type Tab = "plugins" | "settings";
+type SettingsTab = "details" | "people" | "tokens" | "danger";
 
 export default function MarketplaceDetail() {
   const { slug } = useParams<{ slug: string }>();
@@ -45,16 +46,19 @@ export default function MarketplaceDetail() {
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [users, setUsers] = useState<MarketplaceUser[]>([]);
   const [tab, setTab] = useState<Tab>("plugins");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("details");
   const [loading, setLoading] = useState(true);
   const [settingsForm, setSettingsForm] = useState({ displayName: "" });
   const [visibility, setVisibility] = useState<"workspace" | "restricted">("workspace");
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteSlugInput, setDeleteSlugInput] = useState("");
+
   const [tokenName, setTokenName] = useState("Claude read access");
   const [createdToken, setCreatedToken] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [userSearchResults, setUserSearchResults] = useState<MarketplaceUser[]>([]);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
   const [newUserRole, setNewUserRole] = useState<MarketplaceUser["marketplaceRole"]>("marketplace_contributor");
 
   const load = async () => {
@@ -96,11 +100,14 @@ export default function MarketplaceDetail() {
     const query = userSearch.trim();
     if (!slug || query.length === 0) {
       setUserSearchResults([]);
+      setUserSearchLoading(false);
       return;
     }
+    setUserSearchLoading(true);
     const timer = window.setTimeout(async () => {
       const res = await fetch(`/api/marketplaces/${slug}/user-search?q=${encodeURIComponent(query)}`);
       setUserSearchResults(res.ok ? await res.json() : []);
+      setUserSearchLoading(false);
     }, 150);
     return () => window.clearTimeout(timer);
   }, [slug, userSearch]);
@@ -210,11 +217,6 @@ export default function MarketplaceDetail() {
                         <p className="mt-2 text-xs text-slate-500">
                           {plugin.skillCount} skills · {plugin.hookCount} hooks · {plugin.agentCount} agents · {plugin.mcpServerCount} MCP · {plugin.commandCount} commands · {plugin.monitorCount} monitors{plugin.hasSettings ? " · settings" : ""}
                         </p>
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {pluginConsumers(plugin).map((c) => (
-                            <ConsumerBadge key={c} consumer={c} />
-                          ))}
-                        </div>
                       </div>
                       <div className="flex shrink-0 gap-3">
                         <Link to={`/manage/marketplaces/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
@@ -231,128 +233,162 @@ export default function MarketplaceDetail() {
         )}
 
         {tab === "settings" && (
-          <div className="max-w-lg space-y-8">
-            <form onSubmit={handleSaveSettings} className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="text-sm font-semibold text-slate-700">Marketplace details</h2>
-              <SettingsField label="Name" value={settingsForm.displayName} onChange={(v) => setSettingsForm((f) => ({ ...f, displayName: v }))} />
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Visibility</label>
-                <select
-                  value={visibility}
-                  onChange={(e) => setVisibility(e.target.value as "workspace" | "restricted")}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
+          <div>
+            <div className="mb-6 flex gap-4 border-b border-slate-200">
+              {(["details", "people", "tokens", "danger"] as SettingsTab[]).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setSettingsTab(st)}
+                  className={`pb-2 text-sm font-medium capitalize ${
+                    settingsTab === st ? "border-b-2 border-slate-950 text-slate-950" : "text-slate-500 hover:text-slate-900"
+                  }`}
                 >
-                  <option value="workspace">Workspace — visible to all signed-in users</option>
-                  <option value="restricted">Restricted — requires explicit grant to read</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-3">
-                <button type="submit" disabled={settingsSaving} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">
-                  {settingsSaving ? "Saving..." : "Save"}
+                  {st}
                 </button>
-                {settingsMsg && <span className="text-sm text-slate-500">{settingsMsg}</span>}
-              </div>
-            </form>
+              ))}
+            </div>
 
-            <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="text-sm font-semibold text-slate-700">People</h2>
-              <div className="space-y-3 rounded-md border border-slate-200 p-3">
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <SettingsField label="Search users" value={userSearch} onChange={setUserSearch} />
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-slate-700">Role</span>
-                    <select
-                      value={newUserRole}
-                      onChange={(e) => setNewUserRole(e.target.value as MarketplaceUser["marketplaceRole"])}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
-                    >
-                      <option value="marketplace_contributor">Contributor</option>
-                      <option value="marketplace_maintainer">Maintainer</option>
-                      <option value="marketplace_admin">Admin</option>
-                    </select>
-                  </label>
+            {settingsTab === "details" && (
+              <form onSubmit={handleSaveSettings} className="max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6">
+                <h2 className="text-sm font-semibold text-slate-700">Marketplace details</h2>
+                <SettingsField label="Name" value={settingsForm.displayName} onChange={(v) => setSettingsForm((f) => ({ ...f, displayName: v }))} />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Visibility</label>
+                  <select
+                    value={visibility}
+                    onChange={(e) => setVisibility(e.target.value as "workspace" | "restricted")}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  >
+                    <option value="workspace">Workspace — visible to all signed-in users</option>
+                    <option value="restricted">Restricted — requires explicit grant to read</option>
+                  </select>
                 </div>
-                {userSearch.trim() && (
-                  <div className="overflow-hidden rounded-md border border-slate-200">
-                    {userSearchResults.length === 0 ? (
-                      <p className="px-3 py-2 text-sm text-slate-500">No available users found.</p>
-                    ) : (
-                      userSearchResults.map((user) => (
-                        <button
-                          key={user.id}
-                          type="button"
-                          onClick={() => handleAddUser(user)}
-                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium text-slate-900">{user.displayName}</span>
-                            <span className="block truncate text-xs text-slate-500">{user.email}</span>
-                          </span>
-                          <span className="text-xs font-medium text-slate-600">Add</span>
-                        </button>
-                      ))
-                    )}
+                <div className="flex items-center gap-3">
+                  <button type="submit" disabled={settingsSaving} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+                    {settingsSaving ? "Saving..." : "Save"}
+                  </button>
+                  {settingsMsg && <span className="text-sm text-slate-500">{settingsMsg}</span>}
+                </div>
+              </form>
+            )}
+
+            {settingsTab === "people" && (
+              <div className="max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6">
+                <h2 className="text-sm font-semibold text-slate-700">People</h2>
+                <div className="space-y-3 rounded-md border border-slate-200 p-3">
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <SettingsField label="Search users" value={userSearch} onChange={setUserSearch} />
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">Role</span>
+                      <select
+                        value={newUserRole}
+                        onChange={(e) => setNewUserRole(e.target.value as MarketplaceUser["marketplaceRole"])}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
+                      >
+                        <option value="marketplace_contributor">Contributor</option>
+                        <option value="marketplace_maintainer">Maintainer</option>
+                        <option value="marketplace_admin">Admin</option>
+                      </select>
+                    </label>
                   </div>
+                  {userSearch.trim() && (
+                    <div className="overflow-hidden rounded-md border border-slate-200">
+                      {userSearchLoading ? (
+                        <p className="px-3 py-2 text-sm text-slate-500">Searching…</p>
+                      ) : userSearchResults.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-slate-500">No matching users not already assigned.</p>
+                      ) : (
+                        userSearchResults.map((user) => (
+                          <button
+                            key={user.id}
+                            type="button"
+                            onClick={() => handleAddUser(user)}
+                            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-slate-900">{user.displayName}</span>
+                              <span className="block truncate text-xs text-slate-500">{user.email}</span>
+                            </span>
+                            <span className="text-xs font-medium text-slate-600">Add</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                {users.length === 0 ? (
+                  <p className="text-sm text-slate-500">No marketplace people have been assigned yet.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {users.map((user) => (
+                      <li key={user.id} className="flex items-center justify-between gap-4 rounded-md border border-slate-200 p-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-950">{user.displayName}</p>
+                          <p className="truncate text-xs text-slate-500">{user.email} · {user.provider}{user.isOwner ? " · owner" : ""}</p>
+                        </div>
+                        {user.isOwner ? (
+                          <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-700">Owner</span>
+                        ) : (
+                          <select
+                            value={user.marketplaceRole}
+                            onChange={(e) => handleUpdateUserRole(user, e.target.value as MarketplaceUser["marketplaceRole"])}
+                            className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+                            aria-label={`Marketplace role for ${user.displayName}`}
+                          >
+                            <option value="none">No access</option>
+                            <option value="viewer">Viewer</option>
+                            <option value="marketplace_contributor">Contributor</option>
+                            <option value="marketplace_maintainer">Maintainer</option>
+                            <option value="marketplace_admin">Admin</option>
+                          </select>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
-              {users.length === 0 ? (
-                <p className="text-sm text-slate-500">No marketplace people have been assigned yet.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {users.map((user) => (
-                    <li key={user.id} className="flex items-center justify-between gap-4 rounded-md border border-slate-200 p-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-950">{user.displayName}</p>
-                        <p className="truncate text-xs text-slate-500">{user.email} · {user.provider}{user.isOwner ? " · owner" : ""}</p>
-                      </div>
-                      {user.isOwner ? (
-                        <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-700">Owner</span>
-                      ) : (
-                        <select
-                          value={user.marketplaceRole}
-                          onChange={(e) => handleUpdateUserRole(user, e.target.value as MarketplaceUser["marketplaceRole"])}
-                          className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
-                          aria-label={`Marketplace role for ${user.displayName}`}
-                        >
-                          <option value="none">No access</option>
-                          <option value="viewer">Viewer</option>
-                          <option value="marketplace_contributor">Contributor</option>
-                          <option value="marketplace_maintainer">Maintainer</option>
-                          <option value="marketplace_admin">Admin</option>
-                        </select>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            )}
 
-            <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-700">Read-only access token</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Generated tokens let agents clone this marketplace without a user account.</p>
-              </div>
-              <SettingsField label="Token name" value={tokenName} onChange={setTokenName} />
-              <button type="button" onClick={handleCreateToken} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-                Create token
-              </button>
-              {createdToken && (
-                <CopyLine label="Read token" value={createdToken} />
-              )}
-            </div>
-
-            <div className="rounded-lg border border-red-200 bg-white p-6">
-              <h2 className="mb-2 text-sm font-semibold text-red-700">Danger zone</h2>
-              <p className="mb-4 text-sm text-slate-600">Deleting this marketplace removes all plugins and the git repository permanently.</p>
-              {deleteConfirm ? (
-                <div className="flex gap-3">
-                  <button onClick={handleDeleteMarketplace} className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">Yes, delete permanently</button>
-                  <button onClick={() => setDeleteConfirm(false)} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+            {settingsTab === "tokens" && (
+              <div className="max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-700">Read-only access token</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">Generated tokens let agents clone this marketplace without a user account.</p>
                 </div>
-              ) : (
-                <button onClick={() => setDeleteConfirm(true)} className="rounded-md border border-red-400 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Delete marketplace</button>
-              )}
-            </div>
+                <SettingsField label="Token name" value={tokenName} onChange={setTokenName} />
+                <button type="button" onClick={handleCreateToken} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+                  Create token
+                </button>
+                {createdToken && (
+                  <CopyLine label="Read token" value={createdToken} />
+                )}
+              </div>
+            )}
+
+            {settingsTab === "danger" && (
+              <div className="max-w-lg rounded-lg border border-red-200 bg-white p-6">
+                <h2 className="mb-2 text-sm font-semibold text-red-700">Delete marketplace</h2>
+                <p className="mb-4 text-sm text-slate-600">This removes all plugins and the git repository permanently. This cannot be undone.</p>
+                <p className="mb-2 text-sm font-medium text-slate-700">
+                  Type <span className="font-mono font-semibold">{marketplace.slug}</span> to confirm
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    value={deleteSlugInput}
+                    onChange={(e) => setDeleteSlugInput(e.target.value)}
+                    placeholder={marketplace.slug}
+                    className="w-48 rounded-md border border-slate-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
+                  />
+                  <button
+                    onClick={handleDeleteMarketplace}
+                    disabled={deleteSlugInput !== marketplace.slug}
+                    className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Delete marketplace
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -361,28 +397,6 @@ export default function MarketplaceDetail() {
 }
 
 
-const CONSUMER_COLORS: Record<string, string> = {
-  "Claude Code": "bg-amber-50 text-amber-800 border border-amber-200",
-  "Codex": "bg-sky-50 text-sky-800 border border-sky-200",
-  "Copilot": "bg-emerald-50 text-emerald-800 border border-emerald-200",
-};
-
-function ConsumerBadge({ consumer }: { consumer: string }) {
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-xs ${CONSUMER_COLORS[consumer] ?? "bg-slate-100 text-slate-600"}`}>
-      {consumer}
-    </span>
-  );
-}
-
-function pluginConsumers(p: Plugin): string[] {
-  const result: string[] = [];
-  const hasAny = p.skillCount > 0 || p.hookCount > 0 || p.agentCount > 0 || p.mcpServerCount > 0 || p.commandCount > 0 || p.monitorCount > 0 || p.hasSettings;
-  if (hasAny) result.push("Claude Code");
-  if (p.skillCount > 0) result.push("Codex");
-  if (p.skillCount > 0 || p.hookCount > 0 || p.agentCount > 0 || p.mcpServerCount > 0) result.push("Copilot");
-  return result;
-}
 
 function SettingsField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
   const inputId = `settings-${label.toLowerCase().replace(/\s+/g, "-")}`;

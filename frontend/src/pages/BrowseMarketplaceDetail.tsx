@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CopyLine from "../components/CopyLine";
 import { useMe } from "../lib/auth";
+import { ConsumerBadge } from "../lib/consumer-meta";
 
 interface Marketplace {
   slug: string;
@@ -23,19 +24,6 @@ interface Plugin {
   hasSettings: boolean;
 }
 
-const CONSUMER_COLORS: Record<string, string> = {
-  "Claude Code": "bg-amber-50 text-amber-800 border border-amber-200",
-  "Codex": "bg-sky-50 text-sky-800 border border-sky-200",
-  "Copilot": "bg-emerald-50 text-emerald-800 border border-emerald-200",
-};
-
-function ConsumerBadge({ consumer }: { consumer: string }) {
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-xs ${CONSUMER_COLORS[consumer] ?? "bg-slate-100 text-slate-600"}`}>
-      {consumer}
-    </span>
-  );
-}
 
 function pluginConsumers(p: Plugin): string[] {
   const result: string[] = [];
@@ -134,10 +122,19 @@ export default function BrowseMarketplaceDetail() {
                       <p className="mt-0.5 text-sm text-slate-500">{plugin.description}</p>
                     )}
                     <p className="mt-1 text-xs text-slate-400">{componentSummary(plugin)}</p>
-                    <div className="mt-1.5 flex flex-wrap gap-1">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
                       {pluginConsumers(plugin).map((c) => (
                         <ConsumerBadge key={c} consumer={c} />
                       ))}
+                      <div className="relative ml-0.5 inline-block">
+                        <span className="peer cursor-default select-none text-xs text-slate-400 hover:text-slate-600">ⓘ</span>
+                        <div className="pointer-events-none invisible absolute bottom-full left-0 z-10 mb-1 w-52 rounded-md border border-slate-200 bg-white p-2.5 text-xs text-slate-700 shadow-sm peer-hover:visible">
+                          <p className="mb-1.5 font-semibold text-slate-800">Compatible with:</p>
+                          <p className="leading-5"><span className="font-medium text-amber-800">Claude Code</span> — all components</p>
+                          <p className="leading-5"><span className="font-medium text-sky-800">Codex</span> — skills only</p>
+                          <p className="leading-5"><span className="font-medium text-emerald-800">Copilot</span> — skills, hooks, agents, MCP</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <CopyLine
