@@ -55,59 +55,117 @@ interface AuditEvent {
 
 type Tab = "access" | "auth" | "users" | "audit";
 
-function emptyProviderFor(type: "github" | "oidc" | "trusted_header") {
-  if (type === "github") {
-    return {
-      slug: "github",
-      displayName: "GitHub",
-      providerType: "github" as const,
-      enabled: true,
-      clientId: "",
-      clientSecret: "",
-      issuerUrl: "",
-      authorizationUrl: "",
-      tokenUrl: "",
-      userinfoUrl: "",
-      scopes: "",
-      groupClaim: "",
-      allowedOrgs: "",
-    };
-  }
-  if (type === "oidc") {
-    return {
-      slug: "oidc",
-      displayName: "SSO",
-      providerType: "oidc" as const,
-      enabled: true,
-      clientId: "",
-      clientSecret: "",
-      issuerUrl: "",
-      authorizationUrl: "",
-      tokenUrl: "",
-      userinfoUrl: "",
-      scopes: "openid email profile",
-      groupClaim: "",
-      allowedOrgs: "",
-    };
-  }
-  return {
-    slug: "trusted-header",
-    displayName: "Trusted proxy",
-    providerType: "trusted_header" as const,
-    enabled: true,
-    clientId: "",
-    clientSecret: "",
-    issuerUrl: "",
-    authorizationUrl: "",
-    tokenUrl: "",
-    userinfoUrl: "",
-    scopes: "",
-    groupClaim: "",
-    allowedOrgs: "",
-  };
+interface OidcPreset {
+  id: string;
+  label: string;
+  displayName: string;
+  domainLabel: string | null;
+  domainPlaceholder: string;
+  deriveIssuer: (domain: string) => string;
+  steps: () => string[];
 }
 
-type ProviderFormState = ReturnType<typeof emptyProviderFor>;
+const OIDC_PRESETS: OidcPreset[] = [
+  {
+    id: "auth0",
+    label: "Auth0",
+    displayName: "Auth0",
+    domainLabel: "Auth0 Domain",
+    domainPlaceholder: "your-tenant.us.auth0.com",
+    deriveIssuer: (d) => `https://${d.replace(/^https?:\/\//, "").replace(/\/$/, "")}/`,
+    steps: () => [
+      "Go to Auth0 → Applications → Create Application → Regular Web App.",
+      "Set Allowed Callback URLs to the callback URL shown above.",
+      "Copy the Client ID and Client Secret into the fields below.",
+    ],
+  },
+  {
+    id: "okta",
+    label: "Okta",
+    displayName: "Okta",
+    domainLabel: "Okta domain",
+    domainPlaceholder: "dev-12345.okta.com",
+    deriveIssuer: (d) => `https://${d.replace(/^https?:\/\//, "").replace(/\/$/, "")}`,
+    steps: () => [
+      "Go to Okta Admin → Applications → Create App Integration → OIDC – Web Application.",
+      "Set Sign-in redirect URI to the callback URL shown above.",
+      "Copy the Client ID and Client Secret into the fields below.",
+    ],
+  },
+  {
+    id: "entra",
+    label: "Microsoft Entra ID",
+    displayName: "Microsoft Entra ID",
+    domainLabel: "Tenant ID",
+    domainPlaceholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    deriveIssuer: (t) => `https://login.microsoftonline.com/${t.trim()}/v2.0`,
+    steps: () => [
+      "Go to Entra → App registrations → New registration.",
+      "Add a Redirect URI (Web) set to the callback URL shown above.",
+      "Go to Certificates & secrets → New client secret.",
+      "Copy the Application (client) ID and secret value into the fields below.",
+    ],
+  },
+  {
+    id: "google",
+    label: "Google Workspace",
+    displayName: "Google Workspace",
+    domainLabel: null,
+    domainPlaceholder: "",
+    deriveIssuer: () => "https://accounts.google.com",
+    steps: () => [
+      "Go to Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID → Web application.",
+      "Add an Authorized redirect URI set to the callback URL shown above.",
+      "Copy the Client ID and Client Secret into the fields below.",
+    ],
+  },
+  {
+    id: "oidc",
+    label: "Custom OIDC",
+    displayName: "SSO",
+    domainLabel: "Issuer URL",
+    domainPlaceholder: "https://idp.example.com/",
+    deriveIssuer: (v) => v,
+    steps: () => [
+      "Your IdP must publish a discovery document at /.well-known/openid-configuration.",
+      "Register this application with your IdP and set the redirect URI to the callback URL shown above.",
+      "Copy the Client ID and Client Secret into the fields below.",
+    ],
+  },
+];
+
+interface ProviderFormState {
+  preset: string;
+  domainValue: string;
+  slug: string;
+  displayName: string;
+  providerType: "github" | "oidc" | "trusted_header";
+  enabled: boolean;
+  clientId: string;
+  clientSecret: string;
+  issuerUrl: string;
+  authorizationUrl: string;
+  tokenUrl: string;
+  userinfoUrl: string;
+  scopes: string;
+  groupClaim: string;
+  allowedOrgs: string;
+  advancedOpen: boolean;
+  groupClaimEnabled: boolean;
+  endpointOverrideEnabled: boolean;
+}
+
+function emptyFormFor(type: "github" | "oidc-preset" | "trusted_header", presetId?: string): ProviderFormState {
+  const base: Omit<ProviderFormState, "preset" | "slug" | "displayName" | "providerType"> = {
+    domainValue: "", enabled: true, clientId: "", clientSecret: "", issuerUrl: "",
+    authorizationUrl: "", tokenUrl: "", userinfoUrl: "", scopes: "", groupClaim: "",
+    allowedOrgs: "", advancedOpen: false, groupClaimEnabled: false, endpointOverrideEnabled: false,
+  };
+  if (type === "github") return { ...base, preset: "github", slug: "github", displayName: "GitHub", providerType: "github" };
+  if (type === "trusted_header") return { ...base, preset: "trusted_header", slug: "trusted-header", displayName: "Trusted proxy", providerType: "trusted_header" };
+  const preset = OIDC_PRESETS.find((p) => p.id === presetId) ?? OIDC_PRESETS[OIDC_PRESETS.length - 1];
+  return { ...base, preset: preset.id, slug: preset.id, displayName: preset.displayName, providerType: "oidc", scopes: "openid email profile" };
+}
 
 export default function OrganizationAdmin() {
   const location = useLocation();
@@ -123,6 +181,7 @@ export default function OrganizationAdmin() {
   const [tempPassword, setTempPassword] = useState("");
   const [message, setMessage] = useState("");
   const [providerForm, setProviderForm] = useState<ProviderFormState | null>(null);
+  const [saveError, setSaveError] = useState("");
   const [loading, setLoading] = useState(true);
 
   const tab: Tab = (() => {
@@ -184,16 +243,36 @@ export default function OrganizationAdmin() {
   const saveProvider = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!providerForm) return;
+    setSaveError("");
     setMessage("");
+
+    let issuerUrl = providerForm.issuerUrl;
+    if (providerForm.providerType === "oidc") {
+      const preset = OIDC_PRESETS.find((p) => p.id === providerForm.preset);
+      issuerUrl = preset ? preset.deriveIssuer(providerForm.domainValue) : providerForm.domainValue;
+    }
+
+    const { preset: _preset, domainValue: _dv, advancedOpen: _ao, groupClaimEnabled, endpointOverrideEnabled, ...rest } = providerForm;
+    const payload = {
+      ...rest,
+      issuerUrl,
+      groupClaim: groupClaimEnabled ? rest.groupClaim : "",
+      authorizationUrl: endpointOverrideEnabled ? rest.authorizationUrl : "",
+      tokenUrl: endpointOverrideEnabled ? rest.tokenUrl : "",
+      userinfoUrl: endpointOverrideEnabled ? rest.userinfoUrl : "",
+    };
+
     const r = await fetch("/api/organization/auth-providers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(providerForm),
+      body: JSON.stringify(payload),
     });
-    setMessage(r.ok ? "Provider saved." : "Could not save provider.");
     if (r.ok) {
       setProviderForm(null);
       load();
+    } else {
+      const data = await r.json().catch(() => ({}));
+      setSaveError(data.detail || "Could not save provider.");
     }
   };
 
@@ -319,26 +398,47 @@ export default function OrganizationAdmin() {
               <h2 className="mb-4 text-sm font-semibold text-slate-800">Add login provider</h2>
               {providerForm === null ? (
                 <div className="space-y-2">
-                  {(["github", "oidc", "trusted_header"] as const).map((type) => (
+                  <button
+                    type="button"
+                    onClick={() => setProviderForm(emptyFormFor("github"))}
+                    className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50"
+                  >
+                    Configure GitHub
+                  </button>
+                  {OIDC_PRESETS.map((preset) => (
                     <button
-                      key={type}
+                      key={preset.id}
                       type="button"
-                      onClick={() => setProviderForm(emptyProviderFor(type))}
+                      onClick={() => { setSaveError(""); setProviderForm(emptyFormFor("oidc-preset", preset.id)); }}
                       className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50"
                     >
-                      {type === "github" && "Configure GitHub"}
-                      {type === "oidc" && "Configure OIDC / SSO"}
-                      {type === "trusted_header" && "Configure trusted proxy headers"}
+                      Configure {preset.label}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => setProviderForm(emptyFormFor("trusted_header"))}
+                    className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50"
+                  >
+                    Configure trusted proxy headers
+                  </button>
                 </div>
               ) : (
                 <form onSubmit={saveProvider} className="space-y-4">
-                  <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
-                  <Field label="Display name" value={providerForm.displayName} onChange={(v) => setProviderForm((f) => f && ({ ...f, displayName: v }))} />
                   {providerForm.providerType === "github" && (
                     <GitHubSetupInstructions slug={providerForm.slug} publicBaseUrl={me.publicBaseUrl} />
                   )}
+                  {providerForm.providerType === "oidc" && (() => {
+                    const preset = OIDC_PRESETS.find((p) => p.id === providerForm.preset) ?? OIDC_PRESETS[OIDC_PRESETS.length - 1];
+                    return <OidcSetupInstructions preset={preset} slug={providerForm.slug} publicBaseUrl={me.publicBaseUrl} />;
+                  })()}
+                  <Field label="Display name" value={providerForm.displayName} onChange={(v) => setProviderForm((f) => f && ({ ...f, displayName: v }))} />
+                  {providerForm.providerType === "oidc" && (() => {
+                    const preset = OIDC_PRESETS.find((p) => p.id === providerForm.preset) ?? OIDC_PRESETS[OIDC_PRESETS.length - 1];
+                    return preset.domainLabel ? (
+                      <Field label={preset.domainLabel} placeholder={preset.domainPlaceholder} value={providerForm.domainValue} onChange={(v) => setProviderForm((f) => f && ({ ...f, domainValue: v }))} />
+                    ) : null;
+                  })()}
                   {(providerForm.providerType === "github" || providerForm.providerType === "oidc") && (
                     <>
                       <Field label="Client ID" value={providerForm.clientId} onChange={(v) => setProviderForm((f) => f && ({ ...f, clientId: v }))} />
@@ -354,18 +454,43 @@ export default function OrganizationAdmin() {
                       </label>
                     </>
                   )}
-                  {providerForm.providerType === "oidc" && (
-                    <>
-                      <Field label="Issuer URL" value={providerForm.issuerUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, issuerUrl: v }))} />
-                      <Field label="Group claim" value={providerForm.groupClaim} onChange={(v) => setProviderForm((f) => f && ({ ...f, groupClaim: v }))} />
-                    </>
+                  {providerForm.providerType !== "trusted_header" && (
+                    <AdvancedDisclosure open={providerForm.advancedOpen} onToggle={() => setProviderForm((f) => f && ({ ...f, advancedOpen: !f.advancedOpen }))}>
+                      <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
+                      {providerForm.providerType === "oidc" && (
+                        <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => f && ({ ...f, scopes: v }))} />
+                      )}
+                      {providerForm.providerType === "oidc" && (
+                        <>
+                          <label className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" checked={providerForm.groupClaimEnabled} onChange={(e) => setProviderForm((f) => f && ({ ...f, groupClaimEnabled: e.target.checked }))} />
+                            <span className="font-medium text-slate-700">Restrict access by group</span>
+                          </label>
+                          {providerForm.groupClaimEnabled && (
+                            <Field label="Group claim" value={providerForm.groupClaim} onChange={(v) => setProviderForm((f) => f && ({ ...f, groupClaim: v }))} />
+                          )}
+                          <label className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" checked={providerForm.endpointOverrideEnabled} onChange={(e) => setProviderForm((f) => f && ({ ...f, endpointOverrideEnabled: e.target.checked }))} />
+                            <span className="font-medium text-slate-700">Override endpoints manually</span>
+                          </label>
+                          {providerForm.endpointOverrideEnabled && (
+                            <>
+                              <Field label="Authorization URL" value={providerForm.authorizationUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, authorizationUrl: v }))} />
+                              <Field label="Token URL" value={providerForm.tokenUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, tokenUrl: v }))} />
+                              <Field label="Userinfo URL" value={providerForm.userinfoUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, userinfoUrl: v }))} />
+                            </>
+                          )}
+                        </>
+                      )}
+                      {providerForm.providerType === "github" && (
+                        <Field label="Allowed orgs (comma-separated)" value={providerForm.allowedOrgs} onChange={(v) => setProviderForm((f) => f && ({ ...f, allowedOrgs: v }))} />
+                      )}
+                    </AdvancedDisclosure>
                   )}
-                  {providerForm.providerType === "oidc" && (
-                    <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => f && ({ ...f, scopes: v }))} />
-                  )}
+                  {saveError && <p className="text-sm text-red-600">{saveError}</p>}
                   <div className="flex gap-3 pt-1">
                     <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save provider</button>
-                    <button type="button" onClick={() => setProviderForm(null)} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+                    <button type="button" onClick={() => { setProviderForm(null); setSaveError(""); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
                   </div>
                 </form>
               )}
@@ -503,12 +628,40 @@ function GitHubSetupInstructions({ slug, publicBaseUrl }: { slug: string; public
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value?: string | null; onChange: (value: string) => void }) {
+function OidcSetupInstructions({ preset, slug, publicBaseUrl }: { preset: OidcPreset; slug: string; publicBaseUrl: string }) {
+  const callbackUrl = callbackUrlFor(slug || preset.id, publicBaseUrl);
+  const steps = preset.steps();
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+      <h3 className="text-sm font-semibold text-amber-950">Before saving {preset.label}</h3>
+      <div className="mt-3">
+        <CopyLine label="Callback URL" value={callbackUrl} />
+      </div>
+      <ol className="mt-3 list-inside list-decimal space-y-1.5 text-sm text-amber-900">
+        {steps.map((step, i) => <li key={i}>{step}</li>)}
+      </ol>
+    </div>
+  );
+}
+
+function AdvancedDisclosure({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <div>
+      <button type="button" onClick={onToggle} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800">
+        <span className={`inline-block text-xs transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+        Advanced
+      </button>
+      {open && <div className="mt-3 space-y-4 border-l border-slate-200 pl-4">{children}</div>}
+    </div>
+  );
+}
+
+function Field({ label, placeholder, value, onChange }: { label: string; placeholder?: string; value?: string | null; onChange: (value: string) => void }) {
   const id = `org-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <label htmlFor={id} className="block">
       <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
-      <input id={id} value={value ?? ""} onChange={(e) => onChange(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+      <input id={id} value={value ?? ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400" />
     </label>
   );
 }
