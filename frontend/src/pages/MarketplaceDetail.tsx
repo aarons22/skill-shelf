@@ -31,7 +31,7 @@ interface MarketplaceUser {
   email: string;
   displayName: string;
   provider: string;
-  marketplaceRole: "none" | "viewer" | "marketplace_contributor" | "marketplace_maintainer" | "marketplace_admin";
+  marketplaceRole: "none" | "read" | "write" | "maintain" | "admin";
   isOwner: boolean;
 }
 
@@ -57,7 +57,7 @@ export default function MarketplaceDetail() {
   const [userSearch, setUserSearch] = useState("");
   const [userSearchResults, setUserSearchResults] = useState<MarketplaceUser[]>([]);
   const [userSearchLoading, setUserSearchLoading] = useState(false);
-  const [newUserRole, setNewUserRole] = useState<MarketplaceUser["marketplaceRole"]>("marketplace_contributor");
+  const [newUserRole, setNewUserRole] = useState<MarketplaceUser["marketplaceRole"]>("write");
 
   const load = async () => {
     setLoading(true);
@@ -164,7 +164,7 @@ export default function MarketplaceDetail() {
     await handleUpdateUserRole(user, newUserRole);
     setUserSearch("");
     setUserSearchResults([]);
-    setNewUserRole("marketplace_contributor");
+    setNewUserRole("write");
   };
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
@@ -266,9 +266,9 @@ export default function MarketplaceDetail() {
                         onChange={(e) => setNewUserRole(e.target.value as MarketplaceUser["marketplaceRole"])}
                         className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
                       >
-                        <option value="marketplace_contributor">Contributor</option>
-                        <option value="marketplace_maintainer">Maintainer</option>
-                        <option value="marketplace_admin">Admin</option>
+                        <option value="write">Write</option>
+                        <option value="maintain">Maintain</option>
+                        <option value="admin">Admin</option>
                       </select>
                     </label>
                   </div>
@@ -310,18 +310,26 @@ export default function MarketplaceDetail() {
                         {user.isOwner ? (
                           <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-700">Owner</span>
                         ) : (
-                          <select
-                            value={user.marketplaceRole}
-                            onChange={(e) => handleUpdateUserRole(user, e.target.value as MarketplaceUser["marketplaceRole"])}
-                            className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
-                            aria-label={`Marketplace role for ${user.displayName}`}
-                          >
-                            <option value="none">No access</option>
-                            <option value="viewer">Viewer</option>
-                            <option value="marketplace_contributor">Contributor</option>
-                            <option value="marketplace_maintainer">Maintainer</option>
-                            <option value="marketplace_admin">Admin</option>
-                          </select>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <select
+                              value={user.marketplaceRole}
+                              onChange={(e) => handleUpdateUserRole(user, e.target.value as MarketplaceUser["marketplaceRole"])}
+                              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+                              aria-label={`Marketplace role for ${user.displayName}`}
+                            >
+                              <option value="read">Read</option>
+                              <option value="write">Write</option>
+                              <option value="maintain">Maintain</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateUserRole(user, "none")}
+                              className="rounded-md border border-red-300 px-2 py-1.5 text-sm text-red-600 hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         )}
                       </li>
                     ))}
