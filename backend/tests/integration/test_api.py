@@ -308,6 +308,68 @@ def test_restricted_mode_filters_marketplaces_and_allows_scoped_read_tokens(clie
     assert "private-team" in visible_slugs
 
 
+def test_restricted_marketplace_requires_grant_even_in_public_mode(client):
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    assert client.put("/api/organization/settings", json={"accessMode": "public"}).status_code == 200
+
+    public_marketplace = client.post("/api/marketplaces", json={"displayName": "Public Visibility Probe"})
+    assert public_marketplace.status_code == 201
+    restricted_marketplace = client.post("/api/marketplaces", json={"displayName": "Restricted Visibility Probe"})
+    assert restricted_marketplace.status_code == 201
+    restricted_slug = restricted_marketplace.json()["slug"]
+    assert client.put(f"/api/marketplaces/{restricted_slug}", json={"visibility": "restricted"}).status_code == 200
+
+    token_response = client.post("/api/access-tokens", json={
+        "name": "Restricted probe read",
+        "marketplaceSlug": restricted_slug,
+    })
+    assert token_response.status_code == 201
+    token = token_response.json()["token"]
+
+    outsider = client.post("/api/organization/users", json={
+        "email": "public-outsider@example.com",
+        "displayName": "Public Outsider",
+    })
+    assert outsider.status_code == 201
+    temporary_password = outsider.json()["temporaryPassword"]
+
+    client.cookies.clear()
+    assert client.get(f"/m/{restricted_slug}").status_code == 401
+    assert client.get(f"/m/{restricted_slug}", params={"access_token": token}).status_code == 200
+    assert client.post("/auth/login/local", json={
+        "email": "public-outsider@example.com",
+        "password": temporary_password,
+    }).status_code == 200
+    assert client.post("/auth/change-password", json={
+        "current_password": temporary_password,
+        "new_password": "public-outsider-pass-1234",
+    }).status_code == 200
+
+    visible_slugs = {row["slug"] for row in client.get("/api/marketplaces").json()}
+    assert "public-visibility-probe" in visible_slugs
+    assert restricted_slug not in visible_slugs
+    assert client.get(f"/api/marketplaces/{restricted_slug}").status_code == 403
+    assert client.get(f"/m/{restricted_slug}").status_code == 403
+
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    grant = client.put(f"/api/marketplaces/{restricted_slug}/users/{outsider.json()['id']}/role", json={
+        "marketplaceRole": "viewer",
+    })
+    assert grant.status_code == 200
+
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={
+        "email": "public-outsider@example.com",
+        "password": "public-outsider-pass-1234",
+    }).status_code == 200
+    visible_slugs = {row["slug"] for row in client.get("/api/marketplaces").json()}
+    assert restricted_slug in visible_slugs
+    assert client.get(f"/api/marketplaces/{restricted_slug}").status_code == 200
+    assert client.get(f"/m/{restricted_slug}").status_code == 200
+
+
 def test_development_mode_does_not_grant_anonymous_admin(client):
     client.cookies.clear()
     me = client.get("/api/me").json()

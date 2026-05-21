@@ -490,12 +490,14 @@ def can_read_marketplace(conn, actor: Actor | None, marketplace_slug: str, read_
         return read_token.scope == "marketplace_read" and (
             read_token.marketplace_slug is None or read_token.marketplace_slug == marketplace_slug
         )
+    row = conn.execute(select(marketplaces.c.visibility).where(marketplaces.c.slug == marketplace_slug)).one_or_none()
     if settings["access_mode"] == "public":
+        if row and row[0] == "restricted":
+            return has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR, VIEWER})
         return True
     if actor is None:
         return False
     if settings["access_mode"] == "authenticated":
-        row = conn.execute(select(marketplaces.c.visibility).where(marketplaces.c.slug == marketplace_slug)).one_or_none()
         if row and row[0] == "restricted":
             return has_marketplace_role(conn, actor, marketplace_slug, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR, VIEWER})
         return True
@@ -512,7 +514,14 @@ def require_marketplace_read(conn, actor: Actor | None, marketplace_slug: str, r
 def visible_marketplace_condition(conn, actor: Actor | None):
     settings = ensure_organization_settings(conn)
     if settings["access_mode"] == "public":
-        return None
+        if actor is not None and is_workspace_admin(conn, actor):
+            return None
+        if actor is None:
+            return marketplaces.c.visibility == "workspace"
+        return or_(
+            marketplaces.c.visibility == "workspace",
+            marketplaces.c.slug.in_(_granted_marketplace_slugs(conn, actor, {MARKETPLACE_ADMIN, MARKETPLACE_MAINTAINER, MARKETPLACE_CONTRIBUTOR, VIEWER})),
+        )
     if actor is None:
         return marketplaces.c.slug == "__none__"
     if settings["access_mode"] == "authenticated":
