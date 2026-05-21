@@ -71,6 +71,12 @@ def test_create_marketplace_409_on_collision(client):
     assert r.status_code == 409
 
 
+def test_create_marketplace_409_on_reserved_slug(client):
+    r = client.post("/api/marketplaces", json={"displayName": "New"})
+    assert r.status_code == 409
+    assert "reserved" in r.json()["detail"].lower()
+
+
 def test_get_marketplace(client):
     r = client.get("/api/marketplaces/finance-team")
     assert r.status_code == 200

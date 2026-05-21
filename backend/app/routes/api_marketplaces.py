@@ -23,6 +23,8 @@ from app.schemas import MarketplaceCreate, MarketplaceOut, MarketplaceUpdate
 
 router = APIRouter(prefix="/api/marketplaces", tags=["marketplaces"])
 
+RESERVED_MARKETPLACE_SLUGS = {"new"}
+
 
 def _row_to_out(row, skill_count: int | None = None) -> dict[str, Any]:
     return {
@@ -97,6 +99,9 @@ def get_marketplace(slug: str, request: Request, actor: Actor | None = Depends(g
 def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor | None = Depends(get_optional_actor)):
     slug = make_slug(body.displayName)
     now = int(time.time())
+
+    if slug in RESERVED_MARKETPLACE_SLUGS:
+        raise HTTPException(status_code=409, detail=f"Slug '{slug}' is reserved")
 
     # Collision check (outside transaction to avoid locking)
     with get_connection() as conn:
