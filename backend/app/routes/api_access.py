@@ -9,6 +9,9 @@ from app.db import get_connection, get_transaction
 from app.lib.auth import (
     Actor,
     DEFAULT_ORGANIZATION_ID,
+    MARKETPLACE_CREATOR,
+    ORGANIZATION_ADMIN,
+    can_create_marketplace,
     ensure_organization_settings,
     generate_token,
     get_optional_actor,
@@ -65,7 +68,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                 "bootstrapRequired": required,
                 "bootstrapCompleted": not required,
                 "accessMode": settings["access_mode"],
-                "marketplaceCreation": settings["marketplace_creation"],
+                "canCreateMarketplace": False,
                 "publicBaseUrl": public_base_url,
             }
         organization_admin = is_workspace_admin(conn, actor)
@@ -122,7 +125,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
             "bootstrapCompleted": not required,
             "mustChangePassword": bool(credential and credential[0]),
             "accessMode": settings["access_mode"],
-            "marketplaceCreation": settings["marketplace_creation"],
+            "canCreateMarketplace": can_create_marketplace(conn, actor),
             "publicBaseUrl": public_base_url,
         }
 
@@ -131,7 +134,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
 def get_organization_settings():
     with get_transaction() as conn:
         row = ensure_organization_settings(conn)
-        return {"accessMode": row["access_mode"], "marketplaceCreation": row["marketplace_creation"]}
+        return {"accessMode": row["access_mode"]}
 
 
 @router.put("/organization/settings", response_model=WorkspaceSettingsOut)
@@ -142,14 +145,12 @@ def update_organization_settings(body: WorkspaceSettingsUpdate, actor: Actor | N
         values = {}
         if body.accessMode is not None:
             values["access_mode"] = body.accessMode
-        if body.marketplaceCreation is not None:
-            values["marketplace_creation"] = body.marketplaceCreation
         if values:
             values["updated_at"] = int(time.time())
             conn.execute(update(organization_settings).where(organization_settings.c.id == 1).values(**values))
             record_audit(conn, actor, "organization_settings.update", "workspace", "settings", values)
             current = {**current, **values}
-        return {"accessMode": current["access_mode"], "marketplaceCreation": current["marketplace_creation"]}
+        return {"accessMode": current["access_mode"]}
 
 
 @router.get("/organization/auth-providers", response_model=list[AuthProviderOut])
@@ -524,7 +525,7 @@ def update_organization_user_role(user_id: int, body: OrganizationUserRoleUpdate
         current_role = _organization_role_for_user(conn, user_id)
         if current_role == body.organizationRole:
             return _user_out(conn, row)
-        if current_role == "organization_admin" and body.organizationRole == "viewer":
+        if current_role == "organization_admin" and body.organizationRole != "organization_admin":
             admin_count = conn.execute(
                 select(organization_role_grants.c.principal_id).where(
                     organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
@@ -538,14 +539,14 @@ def update_organization_user_role(user_id: int, body: OrganizationUserRoleUpdate
             organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
             organization_role_grants.c.principal_type == "user",
             organization_role_grants.c.principal_id == user_id,
-            organization_role_grants.c.role == "organization_admin",
+            organization_role_grants.c.role.in_([ORGANIZATION_ADMIN, MARKETPLACE_CREATOR]),
         ))
-        if body.organizationRole == "organization_admin":
+        if body.organizationRole in (ORGANIZATION_ADMIN, MARKETPLACE_CREATOR):
             conn.execute(insert(organization_role_grants).values(
                 organization_id=DEFAULT_ORGANIZATION_ID,
                 principal_type="user",
                 principal_id=user_id,
-                role="organization_admin",
+                role=body.organizationRole,
                 created_at=now_ts(),
             ))
         record_audit(conn, actor, "user.role_update", "user", str(user_id), {
@@ -649,15 +650,20 @@ def _user_out(conn, row) -> dict:
 
 
 def _organization_role_for_user(conn, user_id: int) -> str:
-    admin = conn.execute(
+    row = conn.execute(
         select(organization_role_grants.c.role).where(
             organization_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
             organization_role_grants.c.principal_type == "user",
             organization_role_grants.c.principal_id == user_id,
-            organization_role_grants.c.role == "organization_admin",
+            organization_role_grants.c.role.in_([ORGANIZATION_ADMIN, MARKETPLACE_CREATOR]),
         )
-    ).one_or_none()
-    return "organization_admin" if admin else "viewer"
+    ).all()
+    roles = {r[0] for r in row}
+    if ORGANIZATION_ADMIN in roles:
+        return ORGANIZATION_ADMIN
+    if MARKETPLACE_CREATOR in roles:
+        return MARKETPLACE_CREATOR
+    return "viewer"
 
 
 def _set_user_disabled(user_id: int, actor: Actor | None, disabled: bool) -> dict:

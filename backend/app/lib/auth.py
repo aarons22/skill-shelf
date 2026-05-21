@@ -29,6 +29,7 @@ AccessMode = Literal["public", "authenticated", "restricted"]
 
 DEFAULT_ORGANIZATION_ID = 1
 ORGANIZATION_ADMIN = "organization_admin"
+MARKETPLACE_CREATOR = "marketplace_creator"
 MARKETPLACE_ADMIN = "marketplace_admin"
 MARKETPLACE_MAINTAINER = "marketplace_maintainer"
 MARKETPLACE_CONTRIBUTOR = "marketplace_contributor"
@@ -107,14 +108,12 @@ def ensure_organization_settings(conn) -> dict[str, Any]:
         id=1,
         organization_id=DEFAULT_ORGANIZATION_ID,
         access_mode="public",
-        marketplace_creation="authenticated",
         created_at=now,
         updated_at=now,
     ))
     return {
         "id": 1,
         "access_mode": "public",
-        "marketplace_creation": "authenticated",
         "created_at": now,
         "updated_at": now,
     }
@@ -359,6 +358,20 @@ def is_workspace_admin(conn, actor: Actor | None) -> bool:
     ).one_or_none() is not None
 
 
+def has_org_role(conn, actor: Actor | None, role: str) -> bool:
+    if actor is None:
+        return False
+    filters = _principal_filters(conn, actor)
+    if not filters:
+        return False
+    return conn.execute(
+        select(organization_role_grants.c.role).where(
+            organization_role_grants.c.role == role,
+            or_(*filters),
+        )
+    ).one_or_none() is not None
+
+
 def _marketplace_filters(table, conn, actor: Actor, marketplace_slug: str):
     if actor.user_id is None:
         return []
@@ -476,12 +489,11 @@ def require_marketplace_maintain(conn, actor: Actor | None, marketplace_slug: st
 
 
 def can_create_marketplace(conn, actor: Actor | None) -> bool:
-    settings = ensure_organization_settings(conn)
     if actor is None:
         return False
     if is_workspace_admin(conn, actor):
         return True
-    return settings["marketplace_creation"] == "authenticated"
+    return has_org_role(conn, actor, MARKETPLACE_CREATOR)
 
 
 def can_read_marketplace(conn, actor: Actor | None, marketplace_slug: str, read_token: ReadToken | None = None) -> bool:

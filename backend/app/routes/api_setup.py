@@ -50,7 +50,6 @@ def complete_setup(body: OrganizationSetupIn, request: Request):
                     id=1,
                     organization_id=DEFAULT_ORGANIZATION_ID,
                     access_mode=body.accessMode,
-                    marketplace_creation=body.marketplaceCreation,
                     created_at=now,
                     updated_at=now,
                 )
@@ -59,7 +58,7 @@ def complete_setup(body: OrganizationSetupIn, request: Request):
             conn.execute(
                 update(organization_settings)
                 .where(organization_settings.c.id == 1)
-                .values(access_mode=body.accessMode, marketplace_creation=body.marketplaceCreation, updated_at=now)
+                .values(access_mode=body.accessMode, updated_at=now)
             )
 
         provider_slug = body.provider.slug or body.provider.provider
@@ -171,7 +170,7 @@ def complete_setup(body: OrganizationSetupIn, request: Request):
             "bootstrapCompleted": True,
             "mustChangePassword": False,
             "accessMode": body.accessMode,
-            "marketplaceCreation": body.marketplaceCreation,
+            "canCreateMarketplace": True,
             "loginConfigured": True,
         }
     )

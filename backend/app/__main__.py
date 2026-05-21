@@ -3,7 +3,7 @@ import argparse
 from sqlalchemy import insert, select, update
 
 from app.db import get_transaction, run_migrations
-from app.lib.auth import DEFAULT_ORGANIZATION_ID, ORGANIZATION_ADMIN, now_ts, upsert_user
+from app.lib.auth import DEFAULT_ORGANIZATION_ID, MARKETPLACE_CREATOR, ORGANIZATION_ADMIN, now_ts, upsert_user
 from app.lib.local_accounts import generate_temp_password, hash_password
 from app.models import local_account_credentials, organization_role_grants, users
 
@@ -49,8 +49,8 @@ def _reset_password(email: str) -> str:
 
 
 def _promote_user(email: str, role: str) -> None:
-    if role != ORGANIZATION_ADMIN:
-        raise SystemExit("Only organization_admin is supported for organization-level recovery")
+    if role not in (ORGANIZATION_ADMIN, MARKETPLACE_CREATOR):
+        raise SystemExit(f"Role must be one of: {ORGANIZATION_ADMIN}, {MARKETPLACE_CREATOR}")
     with get_transaction() as conn:
         user = conn.execute(select(users).where(users.c.email == email.lower())).mappings().one_or_none()
         if user is None:

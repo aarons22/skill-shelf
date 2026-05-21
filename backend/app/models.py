@@ -33,7 +33,6 @@ organization_settings = Table(
     Column("id", Integer, primary_key=True),
     Column("organization_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, default=1),
     Column("access_mode", Text, nullable=False, default="public"),
-    Column("marketplace_creation", Text, nullable=False, default="authenticated"),
     Column("created_at", Integer, nullable=False),
     Column("updated_at", Integer, nullable=False),
 )

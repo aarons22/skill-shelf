@@ -286,18 +286,16 @@ class CurrentUserOut(BaseModel):
     bootstrapCompleted: bool = True
     mustChangePassword: bool = False
     accessMode: Literal["public", "authenticated", "restricted"] = "public"
-    marketplaceCreation: Literal["authenticated", "organization_admin"] = "authenticated"
+    canCreateMarketplace: bool = False
     publicBaseUrl: str = "http://localhost:3000"
 
 
 class WorkspaceSettingsOut(BaseModel):
     accessMode: Literal["public", "authenticated", "restricted"]
-    marketplaceCreation: Literal["authenticated", "organization_admin"]
 
 
 class WorkspaceSettingsUpdate(BaseModel):
     accessMode: Optional[Literal["public", "authenticated", "restricted"]] = None
-    marketplaceCreation: Optional[Literal["authenticated", "organization_admin"]] = None
 
 
 class PrincipalGrantIn(BaseModel):
@@ -439,7 +437,6 @@ class OrganizationSetupIn(BaseModel):
     ownerName: Optional[str] = None
     ownerEmail: Optional[str] = None
     accessMode: Literal["public", "authenticated", "restricted"] = "public"
-    marketplaceCreation: Literal["authenticated", "organization_admin"] = "authenticated"
     provider: SetupProviderIn
 
 
@@ -468,7 +465,7 @@ class OrganizationUserOut(BaseModel):
     email: str
     displayName: str
     provider: str
-    organizationRole: Literal["organization_admin", "viewer"] = "viewer"
+    organizationRole: Literal["organization_admin", "marketplace_creator", "viewer"] = "viewer"
     disabledAt: Optional[int] = None
     mustChangePassword: bool = False
     createdAt: int
@@ -481,7 +478,7 @@ class OrganizationUserCreate(BaseModel):
 
 
 class OrganizationUserRoleUpdate(BaseModel):
-    organizationRole: Literal["organization_admin", "viewer"]
+    organizationRole: Literal["organization_admin", "marketplace_creator", "viewer"]
 
 
 class OrganizationUserCreatedOut(OrganizationUserOut):
