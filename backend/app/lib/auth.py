@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import secrets
@@ -9,7 +10,7 @@ from fastapi import Cookie, Header, HTTPException, Query, Request, status
 from sqlalchemy import and_, insert, or_, select, update
 
 from app.lib.provider_allowlist import enforce
-from app.lib.session import COOKIE_NAME, read_payload
+from app.lib.session import COOKIE_NAME, read_payload, sign_static_payload
 from app.models import (
     access_tokens,
     audit_events,
@@ -49,7 +50,12 @@ class Actor:
 class ReadToken:
     id: int
     scope: str
-    marketplace_slug: str | None
+    actor: Actor
+    raw: str
+
+
+AGENT_TOKEN_PREFIX = "ssat_"
+USER_AGENT_ACCESS_SCOPE = "user_agent_access"
 
 
 def now_ts() -> int:
@@ -293,28 +299,72 @@ def get_required_actor(
     return actor
 
 
-def get_read_token(
+def signed_agent_token(token_id: int) -> str:
+    return AGENT_TOKEN_PREFIX + sign_static_payload({"kind": "agent_access", "token_id": token_id})
+
+
+def _agent_token_id(raw: str) -> int | None:
+    if not raw.startswith(AGENT_TOKEN_PREFIX):
+        return None
+    payload = read_payload(raw[len(AGENT_TOKEN_PREFIX):])
+    if not payload or payload.get("kind") != "agent_access":
+        return None
+    try:
+        return int(payload["token_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def get_agent_token(
     conn,
     authorization: str | None = None,
-    access_token: str | None = None,
+    agent_token: str | None = None,
 ) -> ReadToken | None:
     raw = None
     if authorization and authorization.lower().startswith("bearer "):
         raw = authorization[7:].strip()
-    elif access_token:
-        raw = access_token
+    elif authorization and authorization.lower().startswith("basic "):
+        raw = _basic_agent_token(authorization[6:].strip())
+    elif agent_token:
+        raw = agent_token
     if not raw:
         return None
+    token_id = _agent_token_id(raw)
+    if token_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token")
     row = conn.execute(
         select(access_tokens).where(
-            access_tokens.c.token_hash == token_hash(raw),
+            access_tokens.c.id == token_id,
+            access_tokens.c.scope == USER_AGENT_ACCESS_SCOPE,
             access_tokens.c.revoked_at.is_(None),
             or_(access_tokens.c.expires_at.is_(None), access_tokens.c.expires_at > now_ts()),
         )
     ).mappings().one_or_none()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
-    return ReadToken(id=row["id"], scope=row["scope"], marketplace_slug=row["marketplace_slug"])
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token")
+    if row["created_by_user_id"] is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token")
+    user = conn.execute(
+        select(users).where(
+            users.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            users.c.id == row["created_by_user_id"],
+        )
+    ).mappings().one_or_none()
+    if user is None or user["disabled_at"] is not None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token")
+    actor = Actor(user_id=user["id"], email=user["email"], display_name=user["display_name"])
+    return ReadToken(id=row["id"], scope=row["scope"], actor=actor, raw=raw)
+
+
+def _basic_agent_token(encoded: str) -> str | None:
+    try:
+        decoded = base64.b64decode(encoded).decode()
+    except Exception:
+        return None
+    if ":" in decoded:
+        username, password = decoded.split(":", 1)
+        return password or username
+    return decoded
 
 
 def _principal_filters(conn, actor: Actor):
@@ -499,9 +549,7 @@ def can_create_marketplace(conn, actor: Actor | None) -> bool:
 def can_read_marketplace(conn, actor: Actor | None, marketplace_slug: str, read_token: ReadToken | None = None) -> bool:
     settings = ensure_organization_settings(conn)
     if read_token is not None:
-        return read_token.scope == "marketplace_read" and (
-            read_token.marketplace_slug is None or read_token.marketplace_slug == marketplace_slug
-        )
+        return can_read_marketplace(conn, read_token.actor, marketplace_slug, None)
     row = conn.execute(select(marketplaces.c.visibility).where(marketplaces.c.slug == marketplace_slug)).one_or_none()
     if settings["access_mode"] == "public":
         if row and row[0] == "restricted":
@@ -585,7 +633,7 @@ def public_read_dependencies(
     request: Request,
     skillshelf_session: str | None = Cookie(default=None),
     authorization: str | None = Header(default=None),
-    access_token: str | None = Query(default=None),
+    agent_token: str | None = Query(default=None),
     x_skillshelf_user_email: str | None = Header(default=None),
     x_skillshelf_user_name: str | None = Header(default=None),
     x_skillshelf_user_id: str | None = Header(default=None),
@@ -607,6 +655,10 @@ def public_read_dependencies(
                 actor = Actor(user_id=user["id"], email=user["email"], display_name=user["display_name"])
         if actor is None:
             actor = actor_from_headers(conn, x_skillshelf_user_email, x_skillshelf_user_name, x_skillshelf_user_id, x_skillshelf_groups)
+        read_token = get_agent_token(conn, authorization, agent_token)
+        if read_token is not None:
+            actor = read_token.actor
+            request.state.agent_token_value = read_token.raw
         request.state.actor = actor
-        request.state.read_token = get_read_token(conn, authorization, access_token)
+        request.state.read_token = read_token
     return None

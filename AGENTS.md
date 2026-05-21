@@ -207,7 +207,7 @@ Access control tables store provider-neutral identity and local grants:
 - `users`, `groups`, and `user_groups`: organization-scoped identity records synced from sessions, trusted headers, or OIDC-style claims
 - `organization_role_grants`: organization role grants; use `organization_admin`
 - `marketplace_role_grants` and `plugin_role_grants`: organization-scoped local role grants for users or groups
-- `access_tokens`: hashed scoped read tokens for marketplace JSON and git clone access
+- `access_tokens`: user-owned agent access token rows; tokens are read-only, tied to the owning user's current permissions, and revoked/rotated per user
 - `audit_events`: reserved for access and destructive-action audit records
 
 ### On-disk layout inside a marketplace's git repo
@@ -342,9 +342,10 @@ All under `/api`, JSON in / JSON out. Access is controlled by organization mode 
 | `PUT` | `/api/organization/settings` | Organization-admin only; mode is `public`, `authenticated`, or `restricted` |
 | `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; PUT without `clientSecret` preserves stored value |
 | `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
-| `GET/POST/DELETE` | `/api/access-tokens` | Scoped read token lifecycle |
+| `GET` | `/api/agent-access` | Returns/creates the signed-in user's agent access token for authenticated snippets |
+| `POST` | `/api/agent-access/rotate` | Revokes the signed-in user's previous agent access and creates a new token |
 
-Roles are `organization_admin`, `marketplace_admin`, `marketplace_maintainer`, `marketplace_contributor`, optional `plugin_maintainer`, and `viewer`. `viewer` is read-only for restricted marketplaces, `marketplace_contributor` can create and edit marketplace plugins/components, `marketplace_maintainer` can also delete marketplace plugins/components, and `marketplace_admin` manages marketplace settings, people, tokens, and deletion. In `public` mode, anonymous users can read marketplaces and smart-HTTP repos, but writes still require a real authenticated user with the right grant. In `authenticated` mode, organization-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or valid scoped read token.
+Roles are `organization_admin`, `marketplace_admin`, `marketplace_maintainer`, `marketplace_contributor`, optional `plugin_maintainer`, and `viewer`. `viewer` is read-only for restricted marketplaces, `marketplace_contributor` can create and edit marketplace plugins/components, `marketplace_maintainer` can also delete marketplace plugins/components, and `marketplace_admin` manages marketplace settings, people, and deletion. In `public` mode, anonymous users can read workspace-visible marketplaces and smart-HTTP repos, but writes still require a real authenticated user with the right grant. In `authenticated` mode, organization-visible marketplaces require a signed-in user. In `restricted` mode, marketplace reads require an explicit grant or user-owned agent access token whose owning user still has read permission.
 
 Lifecycle phases:
 - **Pre-setup**: `organizations.bootstrap_completed_at IS NULL`; `/setup` is open and the first successful `POST /api/organization/setup` creates the initial auth provider and organization admin. A concurrent second setup returns 409.

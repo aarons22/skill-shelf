@@ -11,6 +11,7 @@ from app.lib.auth import (
     DEFAULT_ORGANIZATION_ID,
     MARKETPLACE_CREATOR,
     ORGANIZATION_ADMIN,
+    USER_AGENT_ACCESS_SCOPE,
     can_create_marketplace,
     ensure_organization_settings,
     generate_token,
@@ -20,6 +21,7 @@ from app.lib.auth import (
     record_audit,
     require_marketplace_admin,
     require_workspace_admin,
+    signed_agent_token,
     token_hash,
     upsert_user,
 )
@@ -28,9 +30,7 @@ from app.lib.provider_allowlist import derive_github_scopes, parse_allowlist
 from app.lib.setup_state import is_required
 from app.models import access_tokens, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_role_grants, organization_settings, users
 from app.schemas import (
-    AccessTokenCreate,
-    AccessTokenCreatedOut,
-    AccessTokenOut,
+    AgentAccessOut,
     AuthProviderIn,
     AuthProviderOut,
     AuthProviderUpdate,
@@ -406,62 +406,30 @@ def update_marketplace_user_role(
         return _marketplace_user_out(conn, slug, row, marketplace)
 
 
-@router.get("/access-tokens", response_model=list[AccessTokenOut])
-def list_access_tokens(actor: Actor | None = Depends(get_optional_actor)):
-    with get_connection() as conn:
-        require_workspace_admin(conn, actor)
-        rows = conn.execute(
-            select(access_tokens).where(
-                access_tokens.c.organization_id == DEFAULT_ORGANIZATION_ID
-            ).order_by(access_tokens.c.created_at.desc())
-        ).mappings().all()
-        return [_token_out(row) for row in rows]
-
-
-@router.post("/access-tokens", response_model=AccessTokenCreatedOut, status_code=201)
-def create_access_token(body: AccessTokenCreate, actor: Actor | None = Depends(get_optional_actor)):
-    now = int(time.time())
+@router.get("/agent-access", response_model=AgentAccessOut)
+def get_agent_access(actor: Actor | None = Depends(get_optional_actor)):
     with get_transaction() as conn:
-        if body.marketplaceSlug:
-            _marketplace_exists_or_404(conn, body.marketplaceSlug)
-            require_marketplace_admin(conn, actor, body.marketplaceSlug)
-        else:
-            require_workspace_admin(conn, actor)
-        raw = generate_token()
-        conn.execute(insert(access_tokens).values(
-            organization_id=DEFAULT_ORGANIZATION_ID,
-            name=body.name,
-            token_hash=token_hash(raw),
-            scope="marketplace_read",
-            marketplace_slug=body.marketplaceSlug,
-            created_by_user_id=actor.user_id if actor else None,
-            created_at=now,
-            expires_at=body.expiresAt,
-        ))
-        record_audit(conn, actor, "access_token.create", "access_token", body.name, {
-            "marketplaceSlug": body.marketplaceSlug,
-            "expiresAt": body.expiresAt,
-        })
-        row = conn.execute(
-            select(access_tokens).where(access_tokens.c.token_hash == token_hash(raw))
-        ).mappings().one()
-        return {**_token_out(row), "token": raw}
+        if actor is None or actor.user_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        row = _ensure_agent_access_token(conn, actor)
+        return _agent_access_out(row)
 
 
-@router.delete("/access-tokens/{token_id}", status_code=204)
-def revoke_access_token(token_id: int, actor: Actor | None = Depends(get_optional_actor)):
+@router.post("/agent-access/rotate", response_model=AgentAccessOut)
+def rotate_agent_access(actor: Actor | None = Depends(get_optional_actor)):
     with get_transaction() as conn:
-        token = conn.execute(select(access_tokens).where(access_tokens.c.id == token_id)).mappings().one_or_none()
-        if token is None:
-            raise HTTPException(status_code=404, detail="Access token not found")
-        if token["marketplace_slug"]:
-            require_marketplace_admin(conn, actor, token["marketplace_slug"])
-        else:
-            require_workspace_admin(conn, actor)
-        conn.execute(update(access_tokens).where(access_tokens.c.id == token_id).values(revoked_at=int(time.time())))
-        record_audit(conn, actor, "access_token.revoke", "access_token", str(token_id), {
-            "marketplaceSlug": token["marketplace_slug"],
-        })
+        if actor is None or actor.user_id is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        now = now_ts()
+        conn.execute(update(access_tokens).where(
+            access_tokens.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            access_tokens.c.created_by_user_id == actor.user_id,
+            access_tokens.c.scope == USER_AGENT_ACCESS_SCOPE,
+            access_tokens.c.revoked_at.is_(None),
+        ).values(revoked_at=now))
+        row = _create_agent_access_token(conn, actor, now)
+        record_audit(conn, actor, "agent_access.rotate", "user", str(actor.user_id))
+        return _agent_access_out(row, rotated_at=now)
 
 
 @router.get("/organization/users", response_model=list[OrganizationUserOut])
@@ -589,15 +557,53 @@ def _grant_out(row) -> dict:
     }
 
 
-def _token_out(row) -> dict:
+def _ensure_agent_access_token(conn, actor: Actor):
+    now = now_ts()
+    rows = conn.execute(
+        select(access_tokens).where(
+            access_tokens.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            access_tokens.c.created_by_user_id == actor.user_id,
+            access_tokens.c.scope == USER_AGENT_ACCESS_SCOPE,
+            access_tokens.c.revoked_at.is_(None),
+            or_(access_tokens.c.expires_at.is_(None), access_tokens.c.expires_at > now),
+        ).order_by(access_tokens.c.created_at.desc(), access_tokens.c.id.desc())
+    ).mappings().all()
+    if rows:
+        keep = rows[0]
+        stale_ids = [row["id"] for row in rows[1:]]
+        if stale_ids:
+            conn.execute(update(access_tokens).where(access_tokens.c.id.in_(stale_ids)).values(revoked_at=now))
+        return keep
+    return _create_agent_access_token(conn, actor, now)
+
+
+def _create_agent_access_token(conn, actor: Actor, now: int):
+    conn.execute(insert(access_tokens).values(
+        organization_id=DEFAULT_ORGANIZATION_ID,
+        name="Agent access",
+        token_hash=token_hash(generate_token()),
+        scope=USER_AGENT_ACCESS_SCOPE,
+        marketplace_slug=None,
+        created_by_user_id=actor.user_id,
+        created_at=now,
+    ))
+    return conn.execute(
+        select(access_tokens).where(
+            access_tokens.c.organization_id == DEFAULT_ORGANIZATION_ID,
+            access_tokens.c.created_by_user_id == actor.user_id,
+            access_tokens.c.scope == USER_AGENT_ACCESS_SCOPE,
+            access_tokens.c.revoked_at.is_(None),
+        ).order_by(access_tokens.c.created_at.desc(), access_tokens.c.id.desc())
+    ).mappings().first()
+
+
+def _agent_access_out(row, rotated_at: int | None = None) -> dict:
     return {
-        "id": row["id"],
-        "name": row["name"],
-        "scope": row["scope"],
-        "marketplaceSlug": row["marketplace_slug"],
-        "expiresAt": row["expires_at"],
-        "revokedAt": row["revoked_at"],
+        "active": True,
+        "token": signed_agent_token(row["id"]),
+        "queryParam": "agent_token",
         "createdAt": row["created_at"],
+        "rotatedAt": rotated_at,
     }
 
 

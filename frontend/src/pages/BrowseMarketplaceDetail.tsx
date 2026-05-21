@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CopyLine from "../components/CopyLine";
 import { ConsumerBadge } from "../lib/consumer-meta";
+import { useMe } from "../lib/auth";
 
 interface Marketplace {
   slug: string;
   displayName: string;
   ownerName: string;
+  visibility: "workspace" | "restricted";
 }
 
 interface Plugin {
@@ -48,9 +50,12 @@ function componentSummary(p: Plugin): string {
 export default function BrowseMarketplaceDetail() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { me } = useMe();
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
+  const [agentToken, setAgentToken] = useState("");
+  const [agentAccessMessage, setAgentAccessMessage] = useState("");
 
   useEffect(() => {
     if (!slug) return;
@@ -66,13 +71,44 @@ export default function BrowseMarketplaceDetail() {
     });
   }, [slug]);
 
+  const needsAgentToken = Boolean(
+    marketplace && me?.authenticated && (me.accessMode !== "public" || marketplace.visibility === "restricted"),
+  );
+
+  useEffect(() => {
+    if (!needsAgentToken) {
+      setAgentToken("");
+      return;
+    }
+    fetch("/api/agent-access").then(async (res) => {
+      if (res.ok) {
+        const data = await res.json();
+        setAgentToken(data.token);
+      }
+    });
+  }, [needsAgentToken]);
+
+  const rotateAgentAccess = async () => {
+    setAgentAccessMessage("");
+    const res = await fetch("/api/agent-access/rotate", { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      setAgentToken(data.token);
+      setAgentAccessMessage("Agent access rotated. Re-add this marketplace anywhere you used the previous URL.");
+    } else {
+      setAgentAccessMessage("Could not rotate agent access.");
+    }
+  };
+
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading...</div>;
   if (!marketplace) return null;
 
   const origin = window.location.origin;
-  const connectSnippet = `/plugin marketplace add ${origin}/m/${slug}`;
-  const gitRepoUrl = `${origin}/m/${slug}/git/repo.git`;
+  const marketplaceUrl = withAgentToken(`${origin}/m/${slug}`, agentToken);
+  const gitRepoUrl = withAgentCredentials(`${origin}/m/${slug}/git/repo.git`, agentToken);
+  const connectSnippet = `/plugin marketplace add ${marketplaceUrl}`;
   const copilotSnippet = `copilot plugin marketplace add ${gitRepoUrl}`;
+  const linksReady = !needsAgentToken || Boolean(agentToken);
   return (
     <div>
       <main className="mx-auto max-w-5xl px-4 py-6">
@@ -82,12 +118,27 @@ export default function BrowseMarketplaceDetail() {
           <span className="font-medium text-slate-950">{marketplace.displayName}</span>
         </nav>
         <div className="mb-6 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-4">
-          <CopyLine label="Add to Claude Code" value={connectSnippet} />
-          <CopyLine label="Add to GitHub Copilot" value={copilotSnippet} />
-          <div>
-            <CopyLine label="Add to Codex" value={gitRepoUrl} />
-            <p className="mt-1.5 text-xs text-slate-400">Paste this URL into your Codex agent's marketplace configuration.</p>
-          </div>
+          {linksReady ? (
+            <>
+              <CopyLine label="Add to Claude Code" value={connectSnippet} />
+              <CopyLine label="Add to GitHub Copilot" value={copilotSnippet} />
+              <div>
+                <CopyLine label="Add to Codex" value={gitRepoUrl} />
+                <p className="mt-1.5 text-xs text-slate-400">Paste this URL into your Codex agent's marketplace configuration.</p>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">Preparing authenticated agent links...</p>
+          )}
+          {needsAgentToken && (
+            <div className="border-t border-slate-100 pt-3">
+              <p className="mb-2 text-xs text-slate-500">These links include your read-only agent access. Rotate it if a copied link was exposed.</p>
+              <button type="button" onClick={rotateAgentAccess} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                Rotate agent access
+              </button>
+              {agentAccessMessage && <p className="mt-2 text-xs text-slate-500">{agentAccessMessage}</p>}
+            </div>
+          )}
         </div>
 
         {plugins.length === 0 ? (
@@ -139,4 +190,18 @@ export default function BrowseMarketplaceDetail() {
       </main>
     </div>
   );
+}
+
+function withAgentToken(url: string, token: string): string {
+  if (!token) return url;
+  const joiner = url.includes("?") ? "&" : "?";
+  return `${url}${joiner}agent_token=${encodeURIComponent(token)}`;
+}
+
+function withAgentCredentials(url: string, token: string): string {
+  if (!token) return url;
+  const parsed = new URL(url);
+  parsed.username = "skillshelf";
+  parsed.password = token;
+  return parsed.toString();
 }

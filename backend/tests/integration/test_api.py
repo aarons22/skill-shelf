@@ -292,23 +292,21 @@ def test_multi_capability_plugin_crud(client):
     assert client.get("/api/marketplaces/plugin-team/plugins/ops-toolkit").json()["hookCount"] == 0
 
 
-def test_restricted_mode_filters_marketplaces_and_allows_scoped_read_tokens(client):
+def test_restricted_mode_filters_marketplaces_and_allows_user_agent_tokens(client):
     r = client.post("/api/marketplaces", json={"displayName": "Private Team"})
     assert r.status_code == 201
     assert client.put("/api/marketplaces/private-team", json={"visibility": "restricted"}).status_code == 200
 
-    token_response = client.post("/api/access-tokens", json={
-        "name": "Claude read",
-        "marketplaceSlug": "private-team",
-    })
-    assert token_response.status_code == 201
+    token_response = client.get("/api/agent-access")
+    assert token_response.status_code == 200
     token = token_response.json()["token"]
 
     assert client.put("/api/organization/settings", json={"accessMode": "restricted"}).status_code == 200
     client.cookies.clear()
     assert client.get("/api/marketplaces").json() == []
     assert client.get("/m/private-team").status_code == 401
-    assert client.get("/m/private-team", params={"access_token": token}).status_code == 200
+    r = client.get("/m/private-team", params={"agent_token": token})
+    assert r.status_code == 200
     assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
     visible_slugs = {row["slug"] for row in client.get("/api/marketplaces").json()}
     assert "private-team" in visible_slugs
@@ -324,14 +322,11 @@ def test_restricted_marketplace_requires_grant_even_in_public_mode(client):
     restricted_marketplace = client.post("/api/marketplaces", json={"displayName": "Restricted Visibility Probe"})
     assert restricted_marketplace.status_code == 201
     restricted_slug = restricted_marketplace.json()["slug"]
+    assert client.post(f"/api/marketplaces/{restricted_slug}/plugins", json={
+        "displayName": "Restricted Probe Plugin",
+        "description": "Restricted test plugin",
+    }).status_code == 201
     assert client.put(f"/api/marketplaces/{restricted_slug}", json={"visibility": "restricted"}).status_code == 200
-
-    token_response = client.post("/api/access-tokens", json={
-        "name": "Restricted probe read",
-        "marketplaceSlug": restricted_slug,
-    })
-    assert token_response.status_code == 201
-    token = token_response.json()["token"]
 
     outsider = client.post("/api/organization/users", json={
         "email": "public-outsider@example.com",
@@ -342,7 +337,6 @@ def test_restricted_marketplace_requires_grant_even_in_public_mode(client):
 
     client.cookies.clear()
     assert client.get(f"/m/{restricted_slug}").status_code == 401
-    assert client.get(f"/m/{restricted_slug}", params={"access_token": token}).status_code == 200
     assert client.post("/auth/login/local", json={
         "email": "public-outsider@example.com",
         "password": temporary_password,
@@ -357,8 +351,9 @@ def test_restricted_marketplace_requires_grant_even_in_public_mode(client):
     assert restricted_slug not in visible_slugs
     assert client.get(f"/api/marketplaces/{restricted_slug}").status_code == 403
     assert client.get(f"/m/{restricted_slug}").status_code == 403
-
+    outsider_token = client.get("/api/agent-access").json()["token"]
     client.cookies.clear()
+    assert client.get(f"/m/{restricted_slug}", params={"agent_token": outsider_token}).status_code == 403
     assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
     grant = client.put(f"/api/marketplaces/{restricted_slug}/users/{outsider.json()['id']}/role", json={
         "marketplaceRole": "read",
@@ -374,6 +369,72 @@ def test_restricted_marketplace_requires_grant_even_in_public_mode(client):
     assert restricted_slug in visible_slugs
     assert client.get(f"/api/marketplaces/{restricted_slug}").status_code == 200
     assert client.get(f"/m/{restricted_slug}").status_code == 200
+    r = client.get(f"/m/{restricted_slug}", params={"agent_token": outsider_token})
+    assert r.status_code == 200
+    assert "skillshelf:" in r.json()["plugins"][0]["source"]["url"]
+
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    assert client.put(f"/api/marketplaces/{restricted_slug}/users/{outsider.json()['id']}/role", json={
+        "marketplaceRole": "none",
+    }).status_code == 200
+    client.cookies.clear()
+    assert client.get(f"/m/{restricted_slug}", params={"agent_token": outsider_token}).status_code == 403
+
+
+def test_agent_access_rotation_and_disabled_users(client):
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    marketplace = client.post("/api/marketplaces", json={"displayName": "Agent Token Probe"})
+    assert marketplace.status_code == 201
+    slug = marketplace.json()["slug"]
+    assert client.put(f"/api/marketplaces/{slug}", json={"visibility": "restricted"}).status_code == 200
+    token = client.get("/api/agent-access").json()["token"]
+    assert client.get("/api/agent-access").json()["token"] == token
+    assert client.get(f"/m/{slug}", params={"agent_token": token}).status_code == 200
+
+    rotated = client.post("/api/agent-access/rotate")
+    assert rotated.status_code == 200
+    new_token = rotated.json()["token"]
+    assert new_token != token
+    client.cookies.clear()
+    assert client.get(f"/m/{slug}", params={"agent_token": token}).status_code == 401
+    assert client.get(f"/m/{slug}", params={"agent_token": new_token}).status_code == 200
+
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    admin = next(u for u in client.get("/api/organization/users").json() if u["email"] == "admin@example.com")
+    assert client.post(f"/api/organization/users/{admin['id']}/disable").status_code == 200
+    client.cookies.clear()
+    assert client.get(f"/m/{slug}", params={"agent_token": new_token}).status_code == 401
+
+    # Re-enable for later module-scoped tests.
+    from app.db import get_transaction
+    from app.models import users
+    from sqlalchemy import update
+
+    with get_transaction() as conn:
+        conn.execute(update(users).where(users.c.id == admin["id"]).values(disabled_at=None))
+
+
+def test_expired_agent_token_is_rejected(client):
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
+    token = client.get("/api/agent-access").json()["token"]
+    from app.db import get_transaction
+    from app.lib.auth import USER_AGENT_ACCESS_SCOPE
+    from app.models import access_tokens, users
+    from sqlalchemy import select, update
+
+    with get_transaction() as conn:
+        admin_id = conn.execute(select(users.c.id).where(users.c.email == "admin@example.com")).scalar_one()
+        conn.execute(update(access_tokens).where(
+            access_tokens.c.created_by_user_id == admin_id,
+            access_tokens.c.scope == USER_AGENT_ACCESS_SCOPE,
+            access_tokens.c.revoked_at.is_(None),
+        ).values(expires_at=1))
+
+    client.cookies.clear()
+    assert client.get("/m/finance-team", params={"agent_token": token}).status_code == 401
 
 
 def test_development_mode_does_not_grant_anonymous_admin(client):

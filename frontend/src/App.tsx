@@ -32,7 +32,6 @@ export default function App() {
             <Route path="/organization" element={<OrganizationAdmin />} />
             <Route path="/organization/auth" element={<OrganizationAdmin />} />
             <Route path="/organization/access" element={<OrganizationAdmin />} />
-            <Route path="/organization/tokens" element={<OrganizationAdmin />} />
             <Route path="/organization/users" element={<OrganizationAdmin />} />
 
             {/* Marketplace management — requires authenticated org/marketplace admin */}

@@ -325,30 +325,12 @@ class MarketplaceUserRoleUpdate(BaseModel):
     marketplaceRole: Literal["none", "read", "write", "maintain", "admin"]
 
 
-class AccessTokenCreate(BaseModel):
-    name: str
-    marketplaceSlug: Optional[str] = None
-    expiresAt: Optional[int] = None
-
-
-class AccessTokenCreatedOut(BaseModel):
-    id: int
-    name: str
+class AgentAccessOut(BaseModel):
+    active: bool
     token: str
-    scope: str
-    marketplaceSlug: Optional[str] = None
-    expiresAt: Optional[int] = None
+    queryParam: str = "agent_token"
     createdAt: int
-
-
-class AccessTokenOut(BaseModel):
-    id: int
-    name: str
-    scope: str
-    marketplaceSlug: Optional[str] = None
-    expiresAt: Optional[int] = None
-    revokedAt: Optional[int] = None
-    createdAt: int
+    rotatedAt: Optional[int] = None
 
 
 class AuthProviderIn(BaseModel):

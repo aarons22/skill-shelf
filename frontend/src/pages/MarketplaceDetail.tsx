@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import CopyLine from "../components/CopyLine";
 import { useMe } from "../lib/auth";
 
 interface Marketplace {
@@ -35,9 +34,9 @@ interface MarketplaceUser {
   isOwner: boolean;
 }
 
-type Tab = "plugins" | "details" | "people" | "tokens" | "danger";
-const ALL_TABS: readonly Tab[] = ["plugins", "details", "people", "tokens", "danger"] as const;
-const ADMIN_TABS: readonly Tab[] = ["details", "people", "tokens", "danger"] as const;
+type Tab = "plugins" | "details" | "people" | "danger";
+const ALL_TABS: readonly Tab[] = ["plugins", "details", "people", "danger"] as const;
+const ADMIN_TABS: readonly Tab[] = ["details", "people", "danger"] as const;
 
 export default function MarketplaceDetail() {
   const { slug, tab: tabParam } = useParams<{ slug: string; tab?: string }>();
@@ -56,8 +55,6 @@ export default function MarketplaceDetail() {
   const [settingsMsg, setSettingsMsg] = useState("");
   const [deleteSlugInput, setDeleteSlugInput] = useState("");
 
-  const [tokenName, setTokenName] = useState("Claude read access");
-  const [createdToken, setCreatedToken] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [userSearchResults, setUserSearchResults] = useState<MarketplaceUser[]>([]);
   const [userSearchLoading, setUserSearchLoading] = useState(false);
@@ -137,19 +134,6 @@ export default function MarketplaceDetail() {
   const handleDeleteMarketplace = async () => {
     await fetch(`/api/marketplaces/${slug}`, { method: "DELETE" });
     navigate("/manage");
-  };
-
-  const handleCreateToken = async () => {
-    setCreatedToken("");
-    const r = await fetch("/api/access-tokens", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: tokenName, marketplaceSlug: slug }),
-    });
-    if (r.ok) {
-      const data = await r.json();
-      setCreatedToken(data.token);
-    }
   };
 
   const handleUpdateUserRole = async (user: MarketplaceUser, marketplaceRole: MarketplaceUser["marketplaceRole"]) => {
@@ -337,22 +321,6 @@ export default function MarketplaceDetail() {
                       </li>
                     ))}
                   </ul>
-                )}
-              </div>
-            )}
-
-            {tab === "tokens" && (
-              <div className="max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6">
-                <div>
-                  <h2 className="text-sm font-semibold text-slate-700">Read-only access token</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">Generated tokens let agents clone this marketplace without a user account.</p>
-                </div>
-                <SettingsField label="Token name" value={tokenName} onChange={setTokenName} />
-                <button type="button" onClick={handleCreateToken} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-                  Create token
-                </button>
-                {createdToken && (
-                  <CopyLine label="Read token" value={createdToken} />
                 )}
               </div>
             )}

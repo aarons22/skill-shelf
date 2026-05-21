@@ -51,6 +51,14 @@ def clone_repo(url: str, target_dir: str) -> None:
     porcelain.clone(url, target_dir, checkout=True)
 
 
+def assert_clone_fails(url: str, target_dir: str) -> None:
+    try:
+        clone_repo(url, target_dir)
+    except Exception:
+        return
+    raise AssertionError(f"Expected clone to fail for {url}")
+
+
 def assert_file_contains(path: str, substring: str) -> None:
     content = Path(path).read_text()
     if substring not in content:
@@ -479,9 +487,56 @@ def run_verification() -> None:
             assert r.status_code == 200
             assert r.json()["mustChangePassword"] is False
 
+            print("[verify] Step 14: user agent access can read and clone restricted marketplaces")
+            client.cookies.clear()
+            r = client.post("/auth/login/local", json={"email": "admin@example.com", "password": "harness-pass-1234"})
+            assert r.status_code == 200, f"Admin re-login failed: {r.status_code} {r.text}"
+            r = client.post("/api/marketplaces", json={"displayName": "Agent Access Probe"})
+            assert r.status_code == 201, f"Agent probe marketplace create failed: {r.status_code} {r.text}"
+            agent_slug = r.json()["slug"]
+            r = client.post(f"/api/marketplaces/{agent_slug}/plugins", json={
+                "displayName": "Private Install",
+                "description": "Private agent install test",
+            })
+            assert r.status_code == 201, f"Private plugin create failed: {r.status_code} {r.text}"
+            r = client.post(f"/api/marketplaces/{agent_slug}/plugins/private-install/skills", json={
+                "displayName": "Private Install",
+                "description": "Private agent install test",
+                "content": "Install only with agent access.",
+            })
+            assert r.status_code == 201, f"Private skill create failed: {r.status_code} {r.text}"
+            r = client.put(f"/api/marketplaces/{agent_slug}", json={"visibility": "restricted"})
+            assert r.status_code == 200, f"Restrict marketplace failed: {r.status_code} {r.text}"
+            second_user = next(u for u in client.get("/api/organization/users").json() if u["email"] == "second@example.com")
+            r = client.put(f"/api/marketplaces/{agent_slug}/users/{second_user['id']}/role", json={"marketplaceRole": "read"})
+            assert r.status_code == 200, f"Grant read failed: {r.status_code} {r.text}"
+
+            client.cookies.clear()
+            assert client.get(f"/m/{agent_slug}").status_code == 401
+            r = client.post("/auth/login/local", json={"email": "second@example.com", "password": "second-pass-1234"})
+            assert r.status_code == 200, f"Second user re-login failed: {r.status_code} {r.text}"
+            r = client.get("/api/agent-access")
+            assert r.status_code == 200, f"Agent access failed: {r.status_code} {r.text}"
+            agent_token = r.json()["token"]
+            r = client.get(f"/m/{agent_slug}", params={"agent_token": agent_token})
+            assert r.status_code == 200, f"Tokenized marketplace JSON failed: {r.status_code} {r.text}"
+            tokenized_git_url = r.json()["plugins"][0]["source"]["url"]
+            assert "skillshelf:" in tokenized_git_url, tokenized_git_url
+            assert_clone_fails(f"{base_url}/m/{agent_slug}/git/repo.git", os.path.join(tmpdir, "agent_clone_no_token"))
+            agent_clone = os.path.join(tmpdir, "agent_clone")
+            clone_repo(tokenized_git_url, agent_clone)
+            assert_file_contains(
+                os.path.join(agent_clone, "plugins", "private-install", "skills", "private-install", "SKILL.md"),
+                "Install only with agent access.",
+            )
+            r = client.post("/api/agent-access/rotate")
+            assert r.status_code == 200, f"Rotate agent access failed: {r.status_code} {r.text}"
+            assert_clone_fails(tokenized_git_url, os.path.join(tmpdir, "agent_clone_old_token"))
+            print("  Restricted agent clone and rotation work  ✓")
+
             env_cli = {**env, "PYTHONPATH": str(BACKEND_DIR)}
 
-            print("[verify] Step 14: marketplace_creator role grants creation access")
+            print("[verify] Step 15: marketplace_creator role grants creation access")
             # second@example.com is logged in from step 13 — they are a plain viewer
             r = client.get("/api/me")
             assert r.json()["canCreateMarketplace"] is False, "Viewer should not be able to create marketplaces"
@@ -510,7 +565,7 @@ def run_verification() -> None:
             client.cookies.clear()
             print("  marketplace_creator role works  ✓")
 
-            print("[verify] Step 15: recovery CLI reset-password")
+            print("[verify] Step 16: recovery CLI reset-password")
             result = subprocess.run(
                 [sys.executable, "-m", "skillshelf", "reset-password", "admin@example.com"],
                 cwd=str(BACKEND_DIR),

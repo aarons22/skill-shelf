@@ -17,6 +17,11 @@ def sign_payload(payload: dict[str, Any], max_age_seconds: int | None = None) ->
     body["iat"] = int(time.time())
     if max_age_seconds is not None:
         body["exp"] = body["iat"] + max_age_seconds
+    return sign_static_payload(body)
+
+
+def sign_static_payload(payload: dict[str, Any]) -> str:
+    body = dict(payload)
     raw = json.dumps(body, separators=(",", ":"), sort_keys=True).encode()
     data = base64.urlsafe_b64encode(raw).decode().rstrip("=")
     sig = _signature(data)
