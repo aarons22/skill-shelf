@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import Modal from "../components/Modal";
-import { Field, TextArea } from "../components/FormHelpers";
-import HookHandlerEditor, { HookHandler, defaultHookHandler, hookHandlerToPayload } from "../components/HookHandlerEditor";
-import McpServerConfigEditor, { McpServerConfig, defaultMcpConfig, mcpConfigToPayload } from "../components/McpServerConfigEditor";
-import AgentConfigEditor, { AgentConfig, agentConfigToPayload } from "../components/AgentConfigEditor";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Field } from "../components/FormHelpers";
 import PluginSettingsEditor from "../components/PluginSettingsEditor";
 import { useMe } from "../lib/auth";
 
@@ -15,7 +11,7 @@ interface Marketplace { slug: string; displayName: string }
 interface Plugin { slug: string; displayName: string; description: string; version: string }
 interface Item { slug: string; displayName: string; description?: string }
 
-const MODAL_TITLES: Record<ComponentType, string> = {
+const SINGULAR_LABELS: Record<ComponentType, string> = {
   skills: "skill", hooks: "hook", agents: "agent",
   "mcp-servers": "MCP server", monitors: "monitor",
 };
@@ -45,6 +41,7 @@ const UNSAFE_TABS: EditorTab[] = ["hooks", "mcp-servers", "monitors"];
 export default function PluginEditor() {
   const { slug, pluginSlug } = useParams<{ slug: string; pluginSlug?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { me } = useMe();
   const isEditing = Boolean(pluginSlug);
   const detailPath = useMemo(() => `/manage/marketplaces/${slug ?? ""}`, [slug]);
@@ -56,8 +53,10 @@ export default function PluginEditor() {
   const [error, setError] = useState("");
   const [items, setItems] = useState<Record<string, Item[]>>({});
   const [settings, setSettings] = useState<Record<string, unknown>>({});
-  const [openModal, setOpenModal] = useState<ComponentType | null>(null);
-  const [editorTab, setEditorTab] = useState<EditorTab>("skills");
+  const [editorTab, setEditorTab] = useState<EditorTab>(() => {
+    const stateTab = (location.state as { tab?: EditorTab } | null)?.tab;
+    return stateTab && EDITOR_TABS.includes(stateTab) ? stateTab : "skills";
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -119,33 +118,11 @@ export default function PluginEditor() {
     navigate(`/manage/marketplaces/${slug}/plugins/${data.slug}/edit`);
   };
 
-  async function postComponent(path: ComponentType, body: object): Promise<boolean> {
-    if (!slug || !pluginSlug) return false;
-    setError("");
-    const res = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      setError("Could not save that component. Check required fields.");
-      return false;
-    }
-    setOpenModal(null);
-    await loadComponents();
-    return true;
-  }
-
   async function deleteComponent(path: string, itemSlug: string) {
     if (!slug || !pluginSlug || !confirm(`Delete "${itemSlug}"?`)) return;
     await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${path}/${itemSlug}`, { method: "DELETE" });
     await loadComponents();
   }
-
-  const handleCloseModal = useCallback(() => {
-    setOpenModal(null);
-    setError("");
-  }, []);
 
   const canDeleteContent = Boolean(
     slug && me && (me.organizationAdmin || me.marketplaceAdminSlugs.includes(slug) || me.marketplaceMaintainerSlugs.includes(slug)),
@@ -172,7 +149,7 @@ export default function PluginEditor() {
           <div className="mt-4 flex items-center gap-3">
             <button disabled={saving} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">{saving ? "Saving..." : "Save plugin"}</button>
             {plugin && <span className="font-mono text-xs text-slate-400">v{plugin.version} · {plugin.slug}</span>}
-            {error && !openModal && <span className="text-sm text-red-600">{error}</span>}
+            {error && <span className="text-sm text-red-600">{error}</span>}
           </div>
         </form>
 
@@ -214,7 +191,7 @@ export default function PluginEditor() {
                 items={items[editorTab] ?? []}
                 path={editorTab as ComponentType}
                 docUrl={DOC_URLS[editorTab as ComponentType]}
-                onAdd={() => setOpenModal(editorTab as ComponentType)}
+                onAdd={() => navigate(`/manage/marketplaces/${slug}/plugins/${pluginSlug}/${editorTab}/new`)}
                 onDelete={(item) => deleteComponent(editorTab as ComponentType, item)}
                 slug={slug!}
                 pluginSlug={pluginSlug}
@@ -226,20 +203,10 @@ export default function PluginEditor() {
                 <button type="button" onClick={() => saveSettings(slug!, pluginSlug, settings, setError)} className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
                   Save settings
                 </button>
-                {error && !openModal && <span className="mt-2 block text-sm text-red-600">{error}</span>}
+                {error && <span className="mt-2 block text-sm text-red-600">{error}</span>}
               </section>
             )}
 
-            {openModal && (
-              <Modal title={`Add ${MODAL_TITLES[openModal]}`} onClose={handleCloseModal}>
-                <AddComponentModal
-                  type={openModal}
-                  onSave={(body) => postComponent(openModal, body)}
-                  onClose={handleCloseModal}
-                  error={error}
-                />
-              </Modal>
-            )}
           </>
         )}
       </main>
@@ -272,7 +239,7 @@ function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, plu
           <a href={docUrl} target="_blank" rel="noopener noreferrer" title={`${title} documentation`} className="text-xs text-slate-400 hover:text-slate-700">↗</a>
         </div>
         <button type="button" onClick={onAdd} className="shrink-0 rounded-md bg-slate-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800">
-          Add {MODAL_TITLES[path as ComponentType]}
+          Add {SINGULAR_LABELS[path as ComponentType]}
         </button>
       </div>
       {items.length > 0 && (
@@ -303,113 +270,3 @@ function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, plu
   );
 }
 
-function AddComponentModal({ type, onSave, onClose, error }: {
-  type: ComponentType;
-  onSave: (body: object) => Promise<boolean>;
-  onClose: () => void;
-  error: string;
-}) {
-  switch (type) {
-    case "skills":      return <AddSkillForm onSave={onSave} onClose={onClose} error={error} />;
-    case "hooks":       return <AddHookForm onSave={onSave} onClose={onClose} error={error} />;
-    case "agents":      return <AddAgentForm onSave={onSave} onClose={onClose} error={error} />;
-    case "mcp-servers": return <AddMcpForm onSave={onSave} onClose={onClose} error={error} />;
-    case "monitors":    return <AddMonitorForm onSave={onSave} onClose={onClose} error={error} />;
-  }
-}
-
-type FormProps = { onSave: (body: object) => Promise<boolean>; onClose: () => void; error: string };
-
-function ModalActions({ onClose, error, label = "Add" }: { onClose: () => void; error: string; label?: string }) {
-  return (
-    <div className="mt-5 flex items-center gap-3">
-      <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">{label}</button>
-      <button type="button" onClick={onClose} className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-      {error && <span className="text-sm text-red-600">{error}</span>}
-    </div>
-  );
-}
-
-function AddSkillForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", description: "", content: "" });
-  return (
-    <form onSubmit={async (e) => { e.preventDefault(); await onSave({ displayName: f.displayName, description: f.description, content: f.content }); }}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
-        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
-        <TextArea label="Instructions" value={f.content} onChange={(v) => setF((c) => ({ ...c, content: v }))} rows={8} />
-      </div>
-      <ModalActions onClose={onClose} error={error} label="Add skill" />
-    </form>
-  );
-}
-
-function AddHookForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", event: "PostToolUse", matcher: "Write|Edit", handler: defaultHookHandler() as HookHandler });
-  return (
-    <form onSubmit={async (e) => {
-      e.preventDefault();
-      await onSave({ displayName: f.displayName, event: f.event, matcher: f.matcher, handler: hookHandlerToPayload(f.handler), unsafeConfirmed: true });
-    }}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
-        <Field label="Event" value={f.event} onChange={(v) => setF((c) => ({ ...c, event: v }))} required />
-        <Field label="Matcher (regex)" value={f.matcher} onChange={(v) => setF((c) => ({ ...c, matcher: v }))} />
-        <HookHandlerEditor value={f.handler} onChange={(v) => setF((c) => ({ ...c, handler: v }))} />
-      </div>
-      <ModalActions onClose={onClose} error={error} label="Add hook" />
-    </form>
-  );
-}
-
-function AddAgentForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", description: "", prompt: "", config: {} as AgentConfig });
-  return (
-    <form onSubmit={async (e) => {
-      e.preventDefault();
-      await onSave({ displayName: f.displayName, description: f.description, prompt: f.prompt, config: agentConfigToPayload(f.config) });
-    }}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
-        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
-        <AgentConfigEditor value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} />
-        <TextArea label="Prompt" value={f.prompt} onChange={(v) => setF((c) => ({ ...c, prompt: v }))} rows={8} />
-      </div>
-      <ModalActions onClose={onClose} error={error} label="Add agent" />
-    </form>
-  );
-}
-
-function AddMcpForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", config: defaultMcpConfig() as McpServerConfig });
-  return (
-    <form onSubmit={async (e) => {
-      e.preventDefault();
-      await onSave({ displayName: f.displayName, config: mcpConfigToPayload(f.config), unsafeConfirmed: true });
-    }}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
-        <McpServerConfigEditor value={f.config} onChange={(v) => setF((c) => ({ ...c, config: v }))} />
-      </div>
-      <ModalActions onClose={onClose} error={error} label="Add MCP server" />
-    </form>
-  );
-}
-
-function AddMonitorForm({ onSave, onClose, error }: FormProps) {
-  const [f, setF] = useState({ displayName: "", command: "tail -F ./logs/error.log", description: "", when: "always" });
-  return (
-    <form onSubmit={async (e) => {
-      e.preventDefault();
-      await onSave({ displayName: f.displayName, command: f.command, description: f.description, ...(f.when ? { when: f.when } : {}), unsafeConfirmed: true });
-    }}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Name" value={f.displayName} onChange={(v) => setF((c) => ({ ...c, displayName: v }))} required />
-        <Field label="Shell command" value={f.command} onChange={(v) => setF((c) => ({ ...c, command: v }))} required />
-        <Field label="Description" value={f.description} onChange={(v) => setF((c) => ({ ...c, description: v }))} required />
-        <Field label="When (optional)" value={f.when} onChange={(v) => setF((c) => ({ ...c, when: v }))} />
-      </div>
-      <ModalActions onClose={onClose} error={error} label="Add monitor" />
-    </form>
-  );
-}

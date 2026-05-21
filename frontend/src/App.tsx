@@ -42,6 +42,7 @@ export default function App() {
             <Route path="/manage/marketplaces/:slug" element={<ManageGate><MarketplaceDetail /></ManageGate>} />
             <Route path="/manage/marketplaces/:slug/plugins/new" element={<ManageGate><PluginEditor /></ManageGate>} />
             <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/edit" element={<ManageGate><PluginEditor /></ManageGate>} />
+            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/:componentType/new" element={<ManageGate><ComponentEditor /></ManageGate>} />
             <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/:componentType/:componentSlug/edit" element={<ManageGate><ComponentEditor /></ManageGate>} />
 
             {/* Legacy admin redirects */}

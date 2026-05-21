@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Field, TextArea } from "../components/FormHelpers";
-import HookHandlerEditor, { HookHandler, hookHandlerFromRaw, hookHandlerToPayload } from "../components/HookHandlerEditor";
-import McpServerConfigEditor, { McpServerConfig, mcpConfigFromRaw, mcpConfigToPayload } from "../components/McpServerConfigEditor";
+import HookHandlerEditor, { HookHandler, defaultHookHandler, hookHandlerFromRaw, hookHandlerToPayload } from "../components/HookHandlerEditor";
+import McpServerConfigEditor, { McpServerConfig, defaultMcpConfig, mcpConfigFromRaw, mcpConfigToPayload } from "../components/McpServerConfigEditor";
 import AgentConfigEditor, { AgentConfig, agentConfigFromRaw, agentConfigToPayload } from "../components/AgentConfigEditor";
 
 type ComponentType = "skills" | "hooks" | "agents" | "mcp-servers" | "monitors";
@@ -11,6 +11,10 @@ const VALID_TYPES: ComponentType[] = ["skills", "hooks", "agents", "mcp-servers"
 const SECTION_LABELS: Record<ComponentType, string> = {
   skills: "Skills", hooks: "Hooks", agents: "Agents",
   "mcp-servers": "MCP Servers", monitors: "Monitors",
+};
+const SINGULAR_LABELS: Record<ComponentType, string> = {
+  skills: "skill", hooks: "hook", agents: "agent",
+  "mcp-servers": "MCP server", monitors: "monitor",
 };
 
 type FormState =
@@ -35,6 +39,16 @@ function mapToFormState(type: ComponentType, raw: Record<string, unknown>): Form
   }
 }
 
+function emptyFormState(type: ComponentType): FormState {
+  switch (type) {
+    case "skills": return { type, displayName: "", description: "", content: "" };
+    case "hooks": return { type, displayName: "", event: "PostToolUse", matcher: "Write|Edit", handler: defaultHookHandler() };
+    case "agents": return { type, displayName: "", description: "", prompt: "", config: agentConfigFromRaw({}) };
+    case "mcp-servers": return { type, displayName: "", config: defaultMcpConfig() };
+    case "monitors": return { type, displayName: "", command: "tail -F ./logs/error.log", description: "", when: "always" };
+  }
+}
+
 function buildPayload(state: FormState): object {
   switch (state.type) {
     case "skills":
@@ -52,9 +66,10 @@ function buildPayload(state: FormState): object {
 
 export default function ComponentEditor() {
   const { slug, pluginSlug, componentType, componentSlug } = useParams<{
-    slug: string; pluginSlug: string; componentType: string; componentSlug: string;
+    slug: string; pluginSlug: string; componentType: string; componentSlug?: string;
   }>();
   const navigate = useNavigate();
+  const isNew = !componentSlug;
   const pluginPath = `/manage/marketplaces/${slug}/plugins/${pluginSlug}/edit`;
 
   const [marketplace, setMarketplace] = useState<{ slug: string; displayName: string } | null>(null);
@@ -70,18 +85,22 @@ export default function ComponentEditor() {
       return;
     }
     async function load() {
-      const [mktRes, plugRes, compRes] = await Promise.all([
+      const [mktRes, plugRes] = await Promise.all([
         fetch(`/api/marketplaces/${slug}`),
         fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}`),
-        fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${componentType}/${componentSlug}`),
       ]);
       if (!mktRes.ok) { navigate("/manage"); return; }
       if (!plugRes.ok) { navigate(`/manage/marketplaces/${slug}`); return; }
-      if (!compRes.ok) { navigate(pluginPath); return; }
-      const [mkt, plug, comp] = await Promise.all([mktRes.json(), plugRes.json(), compRes.json()]);
+      const [mkt, plug] = await Promise.all([mktRes.json(), plugRes.json()]);
       setMarketplace(mkt);
       setPlugin(plug);
-      setFormState(mapToFormState(componentType as ComponentType, comp));
+      if (isNew) {
+        setFormState(emptyFormState(componentType as ComponentType));
+      } else {
+        const compRes = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${componentType}/${componentSlug}`);
+        if (!compRes.ok) { navigate(pluginPath); return; }
+        setFormState(mapToFormState(componentType as ComponentType, await compRes.json()));
+      }
       setLoading(false);
     }
     load();
@@ -93,20 +112,24 @@ export default function ComponentEditor() {
     setSaving(true);
     setError("");
     const payload = buildPayload(formState);
-    const res = await fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}/${componentType}/${componentSlug}`, {
-      method: "PUT",
+    const url = isNew
+      ? `/api/marketplaces/${slug}/plugins/${pluginSlug}/${componentType}`
+      : `/api/marketplaces/${slug}/plugins/${pluginSlug}/${componentType}/${componentSlug}`;
+    const res = await fetch(url, {
+      method: isNew ? "POST" : "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     setSaving(false);
     if (!res.ok) { setError("Failed to save. Check required fields."); return; }
-    navigate(pluginPath);
-  }, [formState, slug, pluginSlug, componentType, componentSlug, navigate, pluginPath]);
+    navigate(pluginPath, { state: { tab: componentType } });
+  }, [formState, isNew, slug, pluginSlug, componentType, componentSlug, navigate, pluginPath]);
 
   if (loading) return <div className="min-h-screen bg-slate-50 p-8 text-sm text-slate-500">Loading...</div>;
   if (!marketplace || !plugin || !formState) return null;
 
-  const sectionLabel = SECTION_LABELS[componentType as ComponentType];
+  const type = componentType as ComponentType;
+  const sectionLabel = SECTION_LABELS[type];
 
   return (
     <div>
@@ -118,9 +141,11 @@ export default function ComponentEditor() {
           <span className="text-slate-300">/</span>
           <Link to={pluginPath} className="text-slate-500 hover:text-slate-900">{plugin.displayName}</Link>
           <span className="text-slate-300">/</span>
-          <Link to={pluginPath} className="text-slate-500 hover:text-slate-900">{sectionLabel}</Link>
+          <Link to={pluginPath} state={{ tab: componentType }} className="text-slate-500 hover:text-slate-900">{sectionLabel}</Link>
           <span className="text-slate-300">/</span>
-          <span className="font-medium text-slate-950">{formState.displayName}</span>
+          <span className="font-medium text-slate-950">
+            {isNew ? `New ${SINGULAR_LABELS[type]}` : formState.displayName}
+          </span>
         </nav>
         <form onSubmit={save} className="rounded-lg border border-slate-200 bg-white p-6">
           <div className="grid gap-4 md:grid-cols-2">
@@ -128,7 +153,7 @@ export default function ComponentEditor() {
           </div>
           <div className="mt-6 flex items-center gap-3">
             <button type="submit" disabled={saving} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">
-              {saving ? "Saving..." : "Save"}
+              {saving ? "Saving..." : isNew ? `Add ${SINGULAR_LABELS[type]}` : "Save"}
             </button>
             <button type="button" onClick={() => navigate(pluginPath)} className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
               Cancel
