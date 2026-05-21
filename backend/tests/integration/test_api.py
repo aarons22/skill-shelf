@@ -1,9 +1,11 @@
 """Integration tests for the API routes — uses FastAPI's TestClient (no real server)."""
 import os
+import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select, update
 
 # Point at a temp DB before importing the app
 @pytest.fixture(autouse=True, scope="module")
@@ -50,6 +52,42 @@ def client():
 
 
 # ── Marketplace CRUD ──────────────────────────────────────────────────────────
+
+
+class MockHTTPResponse:
+    def __init__(self, payload: dict, status_code: int = 200):
+        self.payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self.payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"Mock HTTP status {self.status_code}")
+
+
+def login_admin(client):
+    client.cookies.clear()
+    r = client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"})
+    assert r.status_code == 200
+
+
+def create_oidc_provider(client, slug: str, allowlist: dict | None = None, group_claim: str = "groups"):
+    login_admin(client)
+    r = client.post("/api/organization/auth-providers", json={
+        "slug": slug,
+        "displayName": f"OIDC {slug}",
+        "providerType": "oidc",
+        "clientId": f"{slug}-client",
+        "clientSecret": f"{slug}-secret",
+        "issuerUrl": "https://issuer.example.com",
+        "scopes": "openid email profile",
+        "groupClaim": group_claim,
+        "allowlist": allowlist or {},
+    })
+    assert r.status_code == 201, r.text
+    return r.json()
 
 def test_list_empty(client):
     r = client.get("/api/marketplaces")
@@ -516,6 +554,299 @@ def test_auth_provider_stores_client_secret_and_never_returns_it(client):
     })
     assert r2.status_code == 201
     assert r2.json()["scopes"] == "read:user user:email read:org"
+
+
+def test_oidc_redirect_callback_session_and_group_sync(client, monkeypatch):
+    provider = create_oidc_provider(client, "oidc-enterprise", allowlist={"allowedGroups": ["engineering"]})
+    calls = {"get": [], "post": []}
+
+    from app.routes import auth_login
+
+    def fake_get(url, headers=None, timeout=None):
+        calls["get"].append((url, headers, timeout))
+        if url.endswith("/.well-known/openid-configuration"):
+            return MockHTTPResponse({
+                "authorization_endpoint": "https://issuer.example.com/oauth/authorize",
+                "token_endpoint": "https://issuer.example.com/oauth/token",
+                "userinfo_endpoint": "https://issuer.example.com/oauth/userinfo",
+            })
+        assert url == "https://issuer.example.com/oauth/userinfo"
+        assert headers["Authorization"] == "Bearer access-123"
+        return MockHTTPResponse({
+            "sub": "oidc-user-1",
+            "email": "oidc-user@example.com",
+            "name": "OIDC User",
+            "groups": ["engineering", "platform"],
+        })
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        calls["post"].append((url, data, headers, timeout))
+        assert url == "https://issuer.example.com/oauth/token"
+        assert data["client_id"] == provider["clientId"]
+        assert data["client_secret"] == "oidc-enterprise-secret"
+        assert data["redirect_uri"] == "http://testserver/auth/callback/oidc-enterprise"
+        return MockHTTPResponse({"access_token": "access-123"})
+
+    monkeypatch.setattr(auth_login.httpx, "get", fake_get)
+    monkeypatch.setattr(auth_login.httpx, "post", fake_post)
+
+    client.cookies.clear()
+    redirect = client.get("/auth/login/oidc-enterprise", follow_redirects=False)
+    assert redirect.status_code == 302
+    location = redirect.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://issuer.example.com/oauth/authorize"
+    assert query["client_id"] == ["oidc-enterprise-client"]
+    assert query["redirect_uri"] == ["http://testserver/auth/callback/oidc-enterprise"]
+    assert query["scope"] == ["openid email profile"]
+
+    callback = client.get(
+        f"/auth/callback/oidc-enterprise?code=abc123&state={query['state'][0]}",
+        follow_redirects=False,
+    )
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/manage"
+    me = client.get("/api/me").json()
+    assert me["authenticated"] is True
+    assert me["email"] == "oidc-user@example.com"
+
+    from app.db import get_connection
+    from app.models import groups, user_groups, users
+
+    with get_connection() as conn:
+        user_id = conn.execute(select(users.c.id).where(users.c.email == "oidc-user@example.com")).scalar_one()
+        synced_groups = conn.execute(
+            select(groups.c.provider_key)
+            .select_from(groups.join(user_groups, groups.c.id == user_groups.c.group_id))
+            .where(user_groups.c.user_id == user_id)
+        ).scalars().all()
+    assert set(synced_groups) == {"engineering", "platform"}
+    assert calls["post"], "OIDC code exchange was not called"
+    login_admin(client)
+
+
+def test_oidc_allowed_group_denial(client, monkeypatch):
+    create_oidc_provider(client, "oidc-denied", allowlist={"allowedGroups": ["engineering"]})
+
+    from app.routes import auth_login
+
+    def fake_get(url, headers=None, timeout=None):
+        if url.endswith("/.well-known/openid-configuration"):
+            return MockHTTPResponse({
+                "authorization_endpoint": "https://issuer.example.com/oauth/authorize",
+                "token_endpoint": "https://issuer.example.com/oauth/token",
+                "userinfo_endpoint": "https://issuer.example.com/oauth/userinfo",
+            })
+        return MockHTTPResponse({
+            "sub": "oidc-denied-user",
+            "email": "denied@example.com",
+            "name": "Denied User",
+            "groups": ["finance"],
+        })
+
+    monkeypatch.setattr(auth_login.httpx, "get", fake_get)
+    monkeypatch.setattr(auth_login.httpx, "post", lambda *args, **kwargs: MockHTTPResponse({"access_token": "denied-token"}))
+
+    client.cookies.clear()
+    redirect = client.get("/auth/login/oidc-denied", follow_redirects=False)
+    state = parse_qs(urlparse(redirect.headers["location"]).query)["state"][0]
+    callback = client.get(f"/auth/callback/oidc-denied?code=abc&state={state}", follow_redirects=False)
+    assert callback.status_code == 403
+    login_admin(client)
+
+
+def test_oidc_missing_userinfo_and_required_claims_fail(client, monkeypatch):
+    create_oidc_provider(client, "oidc-bad-profile")
+    from app.routes import auth_login
+
+    def fake_get_no_userinfo(url, headers=None, timeout=None):
+        return MockHTTPResponse({
+            "authorization_endpoint": "https://issuer.example.com/oauth/authorize",
+            "token_endpoint": "https://issuer.example.com/oauth/token",
+        })
+
+    monkeypatch.setattr(auth_login.httpx, "get", fake_get_no_userinfo)
+    monkeypatch.setattr(auth_login.httpx, "post", lambda *args, **kwargs: MockHTTPResponse({"access_token": "bad-token"}))
+    client.cookies.clear()
+    redirect = client.get("/auth/login/oidc-bad-profile", follow_redirects=False)
+    state = parse_qs(urlparse(redirect.headers["location"]).query)["state"][0]
+    callback = client.get(f"/auth/callback/oidc-bad-profile?code=abc&state={state}", follow_redirects=False)
+    assert callback.status_code == 400
+
+    def fake_get_missing_claims(url, headers=None, timeout=None):
+        if url.endswith("/.well-known/openid-configuration"):
+            return MockHTTPResponse({
+                "authorization_endpoint": "https://issuer.example.com/oauth/authorize",
+                "token_endpoint": "https://issuer.example.com/oauth/token",
+                "userinfo_endpoint": "https://issuer.example.com/oauth/userinfo",
+            })
+        return MockHTTPResponse({"sub": "missing-email"})
+
+    monkeypatch.setattr(auth_login.httpx, "get", fake_get_missing_claims)
+    redirect = client.get("/auth/login/oidc-bad-profile", follow_redirects=False)
+    state = parse_qs(urlparse(redirect.headers["location"]).query)["state"][0]
+    callback = client.get(f"/auth/callback/oidc-bad-profile?code=abc&state={state}", follow_redirects=False)
+    assert callback.status_code == 400
+    login_admin(client)
+
+
+def test_oidc_disabled_user_and_invalid_state_fail(client, monkeypatch):
+    create_oidc_provider(client, "oidc-disabled")
+    from app.routes import auth_login
+
+    def fake_get(url, headers=None, timeout=None):
+        if url.endswith("/.well-known/openid-configuration"):
+            return MockHTTPResponse({
+                "authorization_endpoint": "https://issuer.example.com/oauth/authorize",
+                "token_endpoint": "https://issuer.example.com/oauth/token",
+                "userinfo_endpoint": "https://issuer.example.com/oauth/userinfo",
+            })
+        return MockHTTPResponse({
+            "sub": "disabled-subject",
+            "email": "disabled-oidc@example.com",
+            "name": "Disabled OIDC",
+            "groups": [],
+        })
+
+    monkeypatch.setattr(auth_login.httpx, "get", fake_get)
+    monkeypatch.setattr(auth_login.httpx, "post", lambda *args, **kwargs: MockHTTPResponse({"access_token": "disabled-token"}))
+
+    client.cookies.clear()
+    redirect = client.get("/auth/login/oidc-disabled", follow_redirects=False)
+    state = parse_qs(urlparse(redirect.headers["location"]).query)["state"][0]
+    assert client.get("/auth/callback/oidc-disabled?code=abc&state=wrong-state", follow_redirects=False).status_code == 400
+    assert client.get(f"/auth/callback/oidc-disabled?code=abc&state={state}", follow_redirects=False).status_code == 302
+
+    from app.db import get_transaction
+    from app.models import users
+
+    with get_transaction() as conn:
+        conn.execute(
+            update(users)
+            .where(users.c.provider == "oidc-disabled", users.c.provider_subject == "disabled-subject")
+            .values(disabled_at=int(time.time()))
+        )
+
+    client.cookies.clear()
+    redirect = client.get("/auth/login/oidc-disabled", follow_redirects=False)
+    state = parse_qs(urlparse(redirect.headers["location"]).query)["state"][0]
+    assert client.get(f"/auth/callback/oidc-disabled?code=abc&state={state}", follow_redirects=False).status_code == 403
+    login_admin(client)
+
+
+def test_trusted_header_noops_without_provider(client):
+    client.cookies.clear()
+    r = client.get("/api/me", headers={
+        "X-Skillshelf-User-Email": "header-user@example.com",
+        "X-Skillshelf-User-Name": "Header User",
+        "X-Skillshelf-User-Id": "header-user",
+    })
+    assert r.status_code == 200
+    assert r.json()["authenticated"] is False
+    login_admin(client)
+
+
+def test_trusted_header_user_upsert_group_sync_allowlist_and_disabled_user(client):
+    login_admin(client)
+    r = client.post("/api/organization/auth-providers", json={
+        "slug": "trusted-proxy",
+        "displayName": "Trusted Proxy",
+        "providerType": "trusted_header",
+        "enabled": True,
+        "allowlist": {"allowedGroups": ["engineering"]},
+    })
+    assert r.status_code == 201
+
+    client.cookies.clear()
+    headers = {
+        "X-Skillshelf-User-Email": "header-user@example.com",
+        "X-Skillshelf-User-Name": "Header User",
+        "X-Skillshelf-User-Id": "header-user",
+        "X-Skillshelf-Groups": "engineering,platform",
+    }
+    me = client.get("/api/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["authenticated"] is True
+    assert me.json()["email"] == "header-user@example.com"
+
+    from app.db import get_connection, get_transaction
+    from app.models import groups, user_groups, users
+
+    with get_connection() as conn:
+        user_id = conn.execute(select(users.c.id).where(users.c.email == "header-user@example.com")).scalar_one()
+        synced_groups = conn.execute(
+            select(groups.c.provider_key)
+            .select_from(groups.join(user_groups, groups.c.id == user_groups.c.group_id))
+            .where(user_groups.c.user_id == user_id)
+        ).scalars().all()
+    assert set(synced_groups) == {"engineering", "platform"}
+
+    denied = client.get("/api/me", headers={**headers, "X-Skillshelf-Groups": "finance"})
+    assert denied.status_code == 403
+
+    with get_transaction() as conn:
+        conn.execute(update(users).where(users.c.id == user_id).values(disabled_at=int(time.time())))
+    disabled = client.get("/api/me", headers=headers)
+    assert disabled.status_code == 403
+
+    with get_transaction() as conn:
+        conn.execute(update(users).where(users.c.id == user_id).values(disabled_at=None))
+    login_admin(client)
+
+
+def test_audit_events_are_admin_visible_filterable_and_sanitized(client):
+    login_admin(client)
+    admin_me = client.get("/api/me").json()
+    from app.db import get_transaction
+    from app.lib.auth import Actor, record_audit
+
+    with get_transaction() as conn:
+        record_audit(
+            conn,
+            Actor(user_id=admin_me["id"], email=admin_me["email"], display_name=admin_me["displayName"]),
+            "sensitive.probe",
+            "probe",
+            "audit",
+            {
+                "clientSecret": "client-secret-value",
+                "sessionCookie": "cookie-value",
+                "agent_token": "agent-token-value",
+                "oauth": {"code": "oauth-code-value"},
+                "temporaryPassword": "temp-password-value",
+                "safe": "visible",
+            },
+        )
+
+    listed = client.get("/api/audit-events?limit=10")
+    assert listed.status_code == 200
+    assert any(event["action"] == "sensitive.probe" for event in listed.json())
+
+    filtered = client.get(f"/api/audit-events?action=sensitive.probe&targetType=probe&actorUserId={admin_me['id']}")
+    assert filtered.status_code == 200
+    assert len(filtered.json()) == 1
+    metadata = filtered.json()[0]["metadata"]
+    assert metadata["safe"] == "visible"
+    serialized = str(metadata)
+    assert "client-secret-value" not in serialized
+    assert "cookie-value" not in serialized
+    assert "agent-token-value" not in serialized
+    assert "oauth-code-value" not in serialized
+    assert "temp-password-value" not in serialized
+    assert metadata["clientSecret"] == "[redacted]"
+    assert metadata["oauth"]["code"] == "[redacted]"
+
+    user = client.post("/api/organization/users", json={
+        "email": "audit-viewer@example.com",
+        "displayName": "Audit Viewer",
+    }).json()
+    client.cookies.clear()
+    assert client.post("/auth/login/local", json={
+        "email": "audit-viewer@example.com",
+        "password": user["temporaryPassword"],
+    }).status_code == 200
+    assert client.get("/api/audit-events").status_code == 403
+    login_admin(client)
 
 
 def test_organization_user_roles_can_be_viewed_and_changed(client):

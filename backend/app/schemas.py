@@ -333,6 +333,18 @@ class AgentAccessOut(BaseModel):
     rotatedAt: Optional[int] = None
 
 
+class AuditEventOut(BaseModel):
+    id: int
+    actorUserId: Optional[int] = None
+    actorDisplayName: Optional[str] = None
+    actorEmail: Optional[str] = None
+    action: str
+    targetType: str
+    targetId: str
+    metadata: dict[str, Any]
+    createdAt: int
+
+
 class AuthProviderIn(BaseModel):
     slug: str
     displayName: str

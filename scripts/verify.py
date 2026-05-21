@@ -565,7 +565,23 @@ def run_verification() -> None:
             client.cookies.clear()
             print("  marketplace_creator role works  ✓")
 
-            print("[verify] Step 16: recovery CLI reset-password")
+            print("[verify] Step 16: audit events are visible only to organization admins")
+            r = client.post("/auth/login/local", json={"email": "admin@example.com", "password": "harness-pass-1234"})
+            assert r.status_code == 200, f"Admin login before audit check failed: {r.status_code} {r.text}"
+            r = client.get("/api/audit-events?limit=20")
+            assert r.status_code == 200, f"Audit event list failed: {r.status_code} {r.text}"
+            audit_events = r.json()
+            assert audit_events, "Expected at least one audit event"
+            assert any(event["action"] in {"marketplace.delete", "agent_access.rotate", "user.create"} for event in audit_events), audit_events
+            client.cookies.clear()
+            r = client.post("/auth/login/local", json={"email": "second@example.com", "password": "second-pass-1234"})
+            assert r.status_code == 200, f"Second user login before audit denial failed: {r.status_code} {r.text}"
+            r = client.get("/api/audit-events")
+            assert r.status_code == 403, f"Expected non-admin audit denial, got {r.status_code} {r.text}"
+            client.cookies.clear()
+            print("  Audit log visibility is admin-only  ✓")
+
+            print("[verify] Step 17: recovery CLI reset-password")
             result = subprocess.run(
                 [sys.executable, "-m", "skillshelf", "reset-password", "admin@example.com"],
                 cwd=str(BACKEND_DIR),

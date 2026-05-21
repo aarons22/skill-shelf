@@ -341,6 +341,7 @@ All under `/api`, JSON in / JSON out. Access is controlled by organization mode 
 | `GET` | `/api/organization/settings` | Organization access mode and marketplace creation policy |
 | `PUT` | `/api/organization/settings` | Organization-admin only; mode is `public`, `authenticated`, or `restricted` |
 | `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; PUT without `clientSecret` preserves stored value |
+| `GET` | `/api/audit-events` | Organization-admin audit event list; supports `limit`, `action`, `targetType`, and `actorUserId` filters |
 | `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
 | `GET` | `/api/agent-access` | Returns/creates the signed-in user's agent access token for authenticated snippets |
 | `POST` | `/api/agent-access/rotate` | Revokes the signed-in user's previous agent access and creates a new token |
@@ -352,6 +353,13 @@ Lifecycle phases:
 - **Operational**: `bootstrap_completed_at` is set; `/setup` is locked, `/login` is live, and anonymous admin behavior is not available.
 
 Recovery is via host-shell CLI: `python -m skillshelf reset-password <email>`, `python -m skillshelf promote-user <email> organization_admin`, and `python -m skillshelf create-user <email> <display-name>`.
+
+Manual Auth0 validation target:
+- Configure Auth0 as an OIDC provider with callback URL `<PUBLIC_BASE_URL>/auth/callback/<provider-slug>`.
+- The authorization request must use scopes containing `openid email profile`.
+- The userinfo response must include `sub` and `email`; `name` is optional and falls back to email.
+- If group-gated access is tested, configure the SkillShelf provider `groupClaim` to the exact Auth0 custom claim key and ensure that claim returns a string or list of group names matching `allowlist.allowedGroups`.
+- Disabled SkillShelf users and users outside `allowedGroups` must be denied on the next login attempt.
 
 ### Plugins and components
 

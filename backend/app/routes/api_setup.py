@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import insert, select, update
 
+from app.config import get_settings
 from app.db import get_transaction
 from app.lib.auth import DEFAULT_ORGANIZATION_ID, ORGANIZATION_ADMIN, ensure_default_organization, now_ts, upsert_user
 from app.lib.local_accounts import hash_password
@@ -179,7 +180,7 @@ def complete_setup(body: OrganizationSetupIn, request: Request):
         sign_payload({"user_id": user_row["id"], "provider": user_row["provider"]}, max_age_seconds=60 * 60 * 24 * 14),
         httponly=True,
         samesite="lax",
-        secure=request.url.scheme == "https",
+        secure=get_settings().secure_cookies,
         max_age=60 * 60 * 24 * 14,
     )
     return response

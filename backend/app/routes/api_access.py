@@ -28,9 +28,10 @@ from app.lib.auth import (
 from app.lib.local_accounts import generate_temp_password, hash_password
 from app.lib.provider_allowlist import derive_github_scopes, parse_allowlist
 from app.lib.setup_state import is_required
-from app.models import access_tokens, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_role_grants, organization_settings, users
+from app.models import access_tokens, audit_events, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_role_grants, organization_settings, users
 from app.schemas import (
     AgentAccessOut,
+    AuditEventOut,
     AuthProviderIn,
     AuthProviderOut,
     AuthProviderUpdate,
@@ -222,6 +223,56 @@ def delete_auth_provider(provider_slug: str, actor: Actor | None = Depends(get_o
             auth_providers.c.slug == provider_slug,
         ))
         record_audit(conn, actor, "auth_provider.delete", "auth_provider", provider_slug)
+
+
+@router.get("/audit-events", response_model=list[AuditEventOut])
+def list_audit_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    action: str | None = None,
+    targetType: str | None = None,
+    actorUserId: int | None = None,
+    actor: Actor | None = Depends(get_optional_actor),
+):
+    with get_connection() as conn:
+        require_workspace_admin(conn, actor)
+        query = (
+            select(
+                audit_events.c.id,
+                audit_events.c.actor_user_id,
+                users.c.display_name.label("actor_display_name"),
+                users.c.email.label("actor_email"),
+                audit_events.c.action,
+                audit_events.c.target_type,
+                audit_events.c.target_id,
+                audit_events.c.metadata_json,
+                audit_events.c.created_at,
+            )
+            .select_from(audit_events.outerjoin(users, audit_events.c.actor_user_id == users.c.id))
+            .where(audit_events.c.organization_id == DEFAULT_ORGANIZATION_ID)
+            .order_by(audit_events.c.created_at.desc(), audit_events.c.id.desc())
+            .limit(limit)
+        )
+        if action:
+            query = query.where(audit_events.c.action == action)
+        if targetType:
+            query = query.where(audit_events.c.target_type == targetType)
+        if actorUserId is not None:
+            query = query.where(audit_events.c.actor_user_id == actorUserId)
+        rows = conn.execute(query).mappings().all()
+        return [
+            {
+                "id": row["id"],
+                "actorUserId": row["actor_user_id"],
+                "actorDisplayName": row["actor_display_name"],
+                "actorEmail": row["actor_email"],
+                "action": row["action"],
+                "targetType": row["target_type"],
+                "targetId": row["target_id"],
+                "metadata": _audit_metadata(row["metadata_json"]),
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
 
 
 @router.get("/marketplaces/{slug}/grants", response_model=list[MarketplaceGrantOut])
@@ -716,6 +767,14 @@ def _provider_values(raw: dict, now: int) -> dict:
     if values:
         values["updated_at"] = now
     return values
+
+
+def _audit_metadata(raw: str) -> dict:
+    try:
+        data = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _provider_out(row) -> dict:

@@ -127,7 +127,7 @@ def start_login(provider_slug: str, request: Request):
         sign_payload({"state": state, "provider": provider_slug, "return_to": return_to}, max_age_seconds=600),
         httponly=True,
         samesite="lax",
-        secure=request.url.scheme == "https",
+        secure=get_settings().secure_cookies,
         max_age=600,
     )
     return response
@@ -281,6 +281,6 @@ def _set_session_cookie(response: Response, request: Request, user_id: int, prov
         sign_payload({"user_id": user_id, "provider": provider}, max_age_seconds=60 * 60 * 24 * 14),
         httponly=True,
         samesite="lax",
-        secure=request.url.scheme == "https",
+        secure=get_settings().secure_cookies,
         max_age=60 * 60 * 24 * 14,
     )

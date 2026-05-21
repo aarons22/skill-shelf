@@ -56,6 +56,28 @@ class ReadToken:
 
 AGENT_TOKEN_PREFIX = "ssat_"
 USER_AGENT_ACCESS_SCOPE = "user_agent_access"
+SENSITIVE_AUDIT_KEYS = {
+    "agent_token",
+    "agentToken",
+    "access_token",
+    "accessToken",
+    "client_secret",
+    "clientSecret",
+    "code",
+    "cookie",
+    "password",
+    "passwordReset",
+    "resetPassword",
+    "session",
+    "session_cookie",
+    "sessionCookie",
+    "skillshelf_session",
+    "temporary_password",
+    "temporaryPassword",
+    "token",
+}
+NORMALIZED_SENSITIVE_AUDIT_KEYS = {"".join(ch for ch in value.lower() if ch.isalnum()) for value in SENSITIVE_AUDIT_KEYS}
+SENSITIVE_AUDIT_KEY_PARTS = ("secret", "password", "token", "cookie", "session")
 
 
 def now_ts() -> int:
@@ -99,9 +121,28 @@ def record_audit(conn, actor: Actor | None, action: str, target_type: str, targe
         action=action,
         target_type=target_type,
         target_id=target_id,
-        metadata_json=json.dumps(metadata or {}),
+        metadata_json=json.dumps(_sanitize_audit_metadata(metadata or {})),
         created_at=now_ts(),
     ))
+
+
+def _sanitize_audit_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            if _is_sensitive_audit_key(str(key)):
+                sanitized[key] = "[redacted]"
+            else:
+                sanitized[key] = _sanitize_audit_metadata(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_audit_metadata(item) for item in value]
+    return value
+
+
+def _is_sensitive_audit_key(key: str) -> bool:
+    normalized = "".join(ch for ch in key.lower() if ch.isalnum())
+    return normalized in NORMALIZED_SENSITIVE_AUDIT_KEYS or normalized == "code" or any(part in normalized for part in SENSITIVE_AUDIT_KEY_PARTS)
 
 
 def ensure_organization_settings(conn) -> dict[str, Any]:

@@ -41,7 +41,19 @@ interface OrgUser {
   mustChangePassword: boolean;
 }
 
-type Tab = "access" | "auth" | "users";
+interface AuditEvent {
+  id: number;
+  actorUserId?: number | null;
+  actorDisplayName?: string | null;
+  actorEmail?: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata: Record<string, unknown>;
+  createdAt: number;
+}
+
+type Tab = "access" | "auth" | "users" | "audit";
 
 function emptyProviderFor(type: "github" | "oidc" | "trusted_header") {
   if (type === "github") {
@@ -103,6 +115,9 @@ export default function OrganizationAdmin() {
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
   const [providers, setProviders] = useState<AuthProvider[]>([]);
   const [users, setUsers] = useState<OrgUser[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [auditAction, setAuditAction] = useState("");
+  const [auditTargetType, setAuditTargetType] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserName, setNewUserName] = useState("");
   const [tempPassword, setTempPassword] = useState("");
@@ -113,6 +128,7 @@ export default function OrganizationAdmin() {
   const tab: Tab = (() => {
     if (location.pathname.endsWith("/auth")) return "auth";
     if (location.pathname.endsWith("/users")) return "users";
+    if (location.pathname.endsWith("/audit")) return "audit";
     return "access";
   })();
 
@@ -136,7 +152,20 @@ export default function OrganizationAdmin() {
     setLoading(false);
   };
 
+  const loadAudit = async () => {
+    const params = new URLSearchParams({ limit: "50" });
+    if (auditAction.trim()) params.set("action", auditAction.trim());
+    if (auditTargetType.trim()) params.set("targetType", auditTargetType.trim());
+    const res = await fetch(`/api/audit-events?${params.toString()}`);
+    setAuditEvents(res.ok ? await res.json() : []);
+  };
+
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (me?.organizationAdmin && tab === "audit") {
+      loadAudit();
+    }
+  }, [me?.organizationAdmin, tab, auditAction, auditTargetType]);
 
   const saveSettings = async (updates: Partial<OrganizationSettings>) => {
     if (!settings) return;
@@ -212,6 +241,7 @@ export default function OrganizationAdmin() {
     { id: "access", label: "Access", path: "/organization" },
     { id: "auth", label: "Auth", path: "/organization/auth" },
     { id: "users", label: "Users", path: "/organization/users" },
+    { id: "audit", label: "Audit", path: "/organization/audit" },
   ];
 
   return (
@@ -404,6 +434,50 @@ export default function OrganizationAdmin() {
               </div>
             </section>
           </div>
+        )}
+
+        {tab === "audit" && (
+          <section className="rounded-lg border border-slate-200 bg-white p-6">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <Field label="Action" value={auditAction} onChange={setAuditAction} />
+              <Field label="Target type" value={auditTargetType} onChange={setAuditTargetType} />
+              <button type="button" onClick={() => { setAuditAction(""); setAuditTargetType(""); }} className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                Clear
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">Time</th>
+                    <th className="py-2 pr-4 font-medium">Actor</th>
+                    <th className="py-2 pr-4 font-medium">Action</th>
+                    <th className="py-2 pr-4 font-medium">Target</th>
+                    <th className="py-2 font-medium">Metadata</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {auditEvents.map((event) => (
+                    <tr key={event.id}>
+                      <td className="whitespace-nowrap py-3 pr-4 text-slate-600">{new Date(event.createdAt * 1000).toLocaleString()}</td>
+                      <td className="py-3 pr-4">
+                        <p className="font-medium text-slate-900">{event.actorDisplayName || "System"}</p>
+                        {event.actorEmail && <p className="text-xs text-slate-500">{event.actorEmail}</p>}
+                      </td>
+                      <td className="whitespace-nowrap py-3 pr-4 font-mono text-xs text-slate-800">{event.action}</td>
+                      <td className="whitespace-nowrap py-3 pr-4 text-slate-700">{event.targetType}:{event.targetId}</td>
+                      <td className="max-w-md py-3 font-mono text-xs text-slate-500">{JSON.stringify(event.metadata)}</td>
+                    </tr>
+                  ))}
+                  {auditEvents.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-sm text-slate-500">No audit events found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
 
       </main>
