@@ -373,16 +373,7 @@ export default function OrganizationAdmin() {
                         <div>
                           <p className="font-medium text-slate-950">{provider.displayName}</p>
                           <p className="text-xs text-slate-500">{provider.providerType} · {provider.enabled ? "enabled" : "disabled"}</p>
-                          {provider.providerType === "github" && (
-                            <div className="mt-3 rounded-md bg-slate-50 p-3">
-                              <CopyLine label="GitHub callback URL" value={provider.callbackUrl || callbackUrlFor(provider.slug)} />
-                            </div>
-                          )}
-                          {provider.providerType === "oidc" && (
-                            <div className="mt-3 rounded-md bg-slate-50 p-3">
-                              <CopyLine label={`${provider.displayName} callback URL`} value={provider.callbackUrl || callbackUrlFor(provider.slug)} />
-                            </div>
-                          )}
+                          <ProviderDetails provider={provider} publicBaseUrl={me.publicBaseUrl} />
                           {!provider.secretConfigured && provider.providerType !== "trusted_header" && provider.providerType !== "trusted_headers" && provider.providerType !== "local" && (
                             <p className="mt-2 text-xs text-amber-700">Client secret not configured</p>
                           )}
@@ -620,6 +611,92 @@ export default function OrganizationAdmin() {
 function callbackUrlFor(slug: string, publicBaseUrl = window.location.origin) {
   const cleanSlug = slug.trim() || "github";
   return `${publicBaseUrl.replace(/\/$/, "")}/auth/callback/${cleanSlug}`;
+}
+
+function absoluteUrl(path: string, publicBaseUrl: string) {
+  if (/^https?:\/\//.test(path)) return path;
+  return `${publicBaseUrl.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function providerLooksLikeAuth0(provider: AuthProvider) {
+  const name = `${provider.displayName} ${provider.issuerUrl ?? ""}`.toLowerCase();
+  return name.includes("auth0");
+}
+
+function ProviderDetails({ provider, publicBaseUrl }: { provider: AuthProvider; publicBaseUrl: string }) {
+  const canShowOAuthDetails = provider.providerType === "github" || provider.providerType === "oidc";
+  const callbackUrl = provider.callbackUrl || callbackUrlFor(provider.slug, publicBaseUrl);
+
+  if (!canShowOAuthDetails) {
+    return (
+      <details className="mt-3 rounded-md bg-slate-50 p-3">
+        <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-900">Provider details</summary>
+        <div className="mt-3 space-y-3">
+          <CopyLine label="Provider slug" value={provider.slug} />
+          {provider.loginUrl && <CopyLine label="Login URL" value={absoluteUrl(provider.loginUrl, publicBaseUrl)} />}
+        </div>
+      </details>
+    );
+  }
+
+  return (
+    <details className="mt-3 rounded-md bg-slate-50 p-3">
+      <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-900">Provider details</summary>
+      <div className="mt-3 space-y-4">
+        <div className="space-y-3">
+          <CopyLine label="Callback URL" value={callbackUrl} />
+          <CopyLine label="Login URL" value={absoluteUrl(provider.loginUrl, publicBaseUrl)} />
+          <CopyLine label="Client ID" value={provider.clientId || "(not set)"} />
+          <CopyLine label="Provider slug" value={provider.slug} />
+        </div>
+        {provider.providerType === "oidc" && (
+          <div className="space-y-3 border-t border-slate-200 pt-3">
+            {provider.issuerUrl && <CopyLine label="Issuer URL" value={provider.issuerUrl} />}
+            <CopyLine label="Scopes" value={provider.scopes || "openid email profile"} />
+            {provider.authorizationUrl && <CopyLine label="Authorization URL" value={provider.authorizationUrl} />}
+            {provider.tokenUrl && <CopyLine label="Token URL" value={provider.tokenUrl} />}
+            {provider.userinfoUrl && <CopyLine label="Userinfo URL" value={provider.userinfoUrl} />}
+            {provider.groupClaim && <CopyLine label="Group claim" value={provider.groupClaim} />}
+          </div>
+        )}
+        {provider.providerType === "github" && provider.allowedOrgs && (
+          <div className="border-t border-slate-200 pt-3">
+            <CopyLine label="Allowed orgs" value={provider.allowedOrgs} />
+          </div>
+        )}
+        <ProviderApplicationUrls provider={provider} callbackUrl={callbackUrl} publicBaseUrl={publicBaseUrl} />
+      </div>
+    </details>
+  );
+}
+
+function ProviderApplicationUrls({ provider, callbackUrl, publicBaseUrl }: { provider: AuthProvider; callbackUrl: string; publicBaseUrl: string }) {
+  const baseUrl = publicBaseUrl.replace(/\/$/, "");
+  if (provider.providerType === "github") {
+    return (
+      <div className="space-y-3 border-t border-slate-200 pt-3">
+        <p className="text-xs font-medium uppercase text-slate-500">GitHub OAuth app</p>
+        <CopyLine label="Authorization callback URL" value={callbackUrl} />
+        <CopyLine label="Homepage URL" value={baseUrl} />
+      </div>
+    );
+  }
+
+  if (provider.providerType !== "oidc") return null;
+
+  return (
+    <div className="space-y-3 border-t border-slate-200 pt-3">
+      <p className="text-xs font-medium uppercase text-slate-500">{providerLooksLikeAuth0(provider) ? "Auth0 application URLs" : "OIDC application URLs"}</p>
+      <CopyLine label={providerLooksLikeAuth0(provider) ? "Allowed Callback URLs" : "Redirect URI"} value={callbackUrl} />
+      <CopyLine label={providerLooksLikeAuth0(provider) ? "Application Login URI" : "Application login URL"} value={`${baseUrl}/login`} />
+      <CopyLine label={providerLooksLikeAuth0(provider) ? "Allowed Logout URLs" : "Post-logout URL"} value={`${baseUrl}/login`} />
+      <CopyLine label="Allowed Web Origins" value={baseUrl} />
+      <CopyLine label="Allowed Origins (CORS)" value={baseUrl} />
+      <p className="text-xs text-slate-500">
+        The redirect or callback URL is required. The other values are safe defaults for providers that enforce application origins.
+      </p>
+    </div>
+  );
 }
 
 function GitHubSetupInstructions({ slug, publicBaseUrl }: { slug: string; publicBaseUrl: string }) {
