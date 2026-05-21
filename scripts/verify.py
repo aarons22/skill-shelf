@@ -110,7 +110,6 @@ def run_verification() -> None:
                 "ownerName": "Test Owner",
                 "ownerEmail": "owner@example.com",
                 "accessMode": "public",
-                "marketplaceCreation": "authenticated",
                 "provider": {
                     "provider": "local",
                     "admin": {
@@ -129,6 +128,12 @@ def run_verification() -> None:
             assert me["organizationAdmin"] is True
             assert me["bootstrapRequired"] is False
             assert me["bootstrapCompleted"] is True
+            assert me["canCreateMarketplace"] is True, "Org admin should have canCreateMarketplace=true"
+            assert "marketplaceCreation" not in me, "marketplaceCreation field should be removed from /api/me"
+
+            r = client.get("/api/organization/settings")
+            assert r.status_code == 200
+            assert "marketplaceCreation" not in r.json(), "marketplaceCreation should be absent from /api/organization/settings"
             print("  Local admin session created  ✓")
 
             print("[verify] Step 1c: concurrent/second setup is rejected")
@@ -474,8 +479,38 @@ def run_verification() -> None:
             assert r.status_code == 200
             assert r.json()["mustChangePassword"] is False
 
-            print("[verify] Step 14: recovery CLI reset-password")
             env_cli = {**env, "PYTHONPATH": str(BACKEND_DIR)}
+
+            print("[verify] Step 14: marketplace_creator role grants creation access")
+            # second@example.com is logged in from step 13 — they are a plain viewer
+            r = client.get("/api/me")
+            assert r.json()["canCreateMarketplace"] is False, "Viewer should not be able to create marketplaces"
+            r = client.post("/api/marketplaces", json={"displayName": "Creator Test"})
+            assert r.status_code == 403, f"Expected 403 for non-creator, got {r.status_code} {r.text}"
+
+            # Grant marketplace_creator via CLI
+            client.cookies.clear()
+            result = subprocess.run(
+                [sys.executable, "-m", "skillshelf", "promote-user", "second@example.com", "marketplace_creator"],
+                cwd=str(BACKEND_DIR),
+                env=env_cli,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "marketplace_creator" in result.stdout, f"Unexpected CLI output: {result.stdout!r}"
+
+            # Re-login and verify access
+            r = client.post("/auth/login/local", json={"email": "second@example.com", "password": "second-pass-1234"})
+            assert r.status_code == 200
+            r = client.get("/api/me")
+            assert r.json()["canCreateMarketplace"] is True, "marketplace_creator should have canCreateMarketplace=true"
+            r = client.post("/api/marketplaces", json={"displayName": "Creator Test"})
+            assert r.status_code == 201, f"marketplace_creator should be able to create: {r.status_code} {r.text}"
+            client.cookies.clear()
+            print("  marketplace_creator role works  ✓")
+
+            print("[verify] Step 15: recovery CLI reset-password")
             result = subprocess.run(
                 [sys.executable, "-m", "skillshelf", "reset-password", "admin@example.com"],
                 cwd=str(BACKEND_DIR),
