@@ -213,9 +213,7 @@ export default function MarketplaceDetail() {
                         <p className="font-medium text-slate-950">{plugin.displayName}</p>
                         <p className="mt-0.5 truncate text-sm text-slate-500">{plugin.description}</p>
                         <p className="mt-2 font-mono text-xs text-slate-400">v{plugin.version} · {plugin.slug}</p>
-                        <p className="mt-2 text-xs text-slate-500">
-                          {plugin.skillCount} skills · {plugin.hookCount} hooks · {plugin.agentCount} agents · {plugin.mcpServerCount} MCP · {plugin.commandCount} commands · {plugin.monitorCount} monitors{plugin.hasSettings ? " · settings" : ""}
-                        </p>
+                        <p className="mt-2 text-xs text-slate-500">{componentSummary(plugin)}</p>
                       </div>
                       <div className="flex shrink-0 gap-3">
                         <Link to={`/manage/marketplaces/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
@@ -378,6 +376,18 @@ export default function MarketplaceDetail() {
 }
 
 
+
+function componentSummary(p: Plugin): string {
+  const parts: string[] = [];
+  if (p.skillCount) parts.push(`${p.skillCount} skill${p.skillCount !== 1 ? "s" : ""}`);
+  if (p.hookCount) parts.push(`${p.hookCount} hook${p.hookCount !== 1 ? "s" : ""}`);
+  if (p.agentCount) parts.push(`${p.agentCount} agent${p.agentCount !== 1 ? "s" : ""}`);
+  if (p.mcpServerCount) parts.push(`${p.mcpServerCount} MCP server${p.mcpServerCount !== 1 ? "s" : ""}`);
+  if (p.commandCount) parts.push(`${p.commandCount} command${p.commandCount !== 1 ? "s" : ""}`);
+  if (p.monitorCount) parts.push(`${p.monitorCount} monitor${p.monitorCount !== 1 ? "s" : ""}`);
+  if (p.hasSettings) parts.push("settings");
+  return parts.length ? parts.join(" · ") : "No components";
+}
 
 function SettingsField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
   const inputId = `settings-${label.toLowerCase().replace(/\s+/g, "-")}`;

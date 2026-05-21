@@ -84,7 +84,10 @@ export default function BrowseMarketplaceDetail() {
         <div className="mb-6 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-4">
           <CopyLine label="Add to Claude Code" value={connectSnippet} />
           <CopyLine label="Add to GitHub Copilot" value={copilotSnippet} />
-          <CopyLine label="Codex-compatible git repo" value={gitRepoUrl} />
+          <div>
+            <CopyLine label="Add to Codex" value={gitRepoUrl} />
+            <p className="mt-1.5 text-xs text-slate-400">Paste this URL into your Codex agent's marketplace configuration.</p>
+          </div>
         </div>
 
         {plugins.length === 0 ? (

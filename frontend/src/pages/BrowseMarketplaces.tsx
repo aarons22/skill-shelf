@@ -32,7 +32,7 @@ export default function BrowseMarketplaces() {
         ) : (
           <>
             <p className="mb-6 text-sm text-slate-500">
-              Click a marketplace to see its plugins and get the install command for Claude Code.
+              Browse marketplaces. Each one bundles plugins you can install in Claude Code, Codex, or GitHub Copilot.
             </p>
             <ul className="space-y-3">
               {marketplaces.map((m) => (
