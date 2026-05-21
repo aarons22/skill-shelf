@@ -355,7 +355,7 @@ def test_restricted_marketplace_requires_grant_even_in_public_mode(client):
     client.cookies.clear()
     assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
     grant = client.put(f"/api/marketplaces/{restricted_slug}/users/{outsider.json()['id']}/role", json={
-        "marketplaceRole": "viewer",
+        "marketplaceRole": "read",
     })
     assert grant.status_code == 200
 
@@ -383,12 +383,10 @@ def test_development_mode_does_not_grant_anonymous_admin(client):
 
 
 def test_organization_settings_update(client):
-    r = client.put("/api/organization/settings", json={
-        "accessMode": "authenticated",
-        "marketplaceCreation": "organization_admin",
-    })
+    r = client.put("/api/organization/settings", json={"accessMode": "authenticated"})
     assert r.status_code == 200
-    assert r.json()["marketplaceCreation"] == "organization_admin"
+    assert r.json()["accessMode"] == "authenticated"
+    assert "marketplaceCreation" not in r.json()
     assert client.put("/api/organization/settings", json={"accessMode": "public"}).status_code == 200
 
 
@@ -497,7 +495,7 @@ def test_marketplace_admin_can_assign_user_marketplace_roles(client):
     assert all(u["id"] != user["id"] for u in users)
     owner = next(u for u in users if u["email"] == "admin@example.com")
     assert owner["isOwner"] is True
-    assert owner["marketplaceRole"] == "marketplace_admin"
+    assert owner["marketplaceRole"] == "admin"
     search_response = client.get(f"/api/marketplaces/{slug}/user-search?q=contrib")
     assert search_response.status_code == 200
     listed_user = next(u for u in search_response.json() if u["id"] == user["id"])
@@ -505,12 +503,12 @@ def test_marketplace_admin_can_assign_user_marketplace_roles(client):
     assert listed_user["isOwner"] is False
 
     grant = client.put(f"/api/marketplaces/{slug}/users/{user['id']}/role", json={
-        "marketplaceRole": "marketplace_maintainer",
+        "marketplaceRole": "maintain",
     })
     assert grant.status_code == 200
-    assert grant.json()["marketplaceRole"] == "marketplace_maintainer"
+    assert grant.json()["marketplaceRole"] == "maintain"
     users_response = client.get(f"/api/marketplaces/{slug}/users")
-    assert any(u["id"] == user["id"] and u["marketplaceRole"] == "marketplace_maintainer" for u in users_response.json())
+    assert any(u["id"] == user["id"] and u["marketplaceRole"] == "maintain" for u in users_response.json())
 
     client.cookies.clear()
     assert client.post("/auth/login/local", json={
@@ -533,7 +531,7 @@ def test_marketplace_admin_can_assign_user_marketplace_roles(client):
     assert client.post("/auth/login/local", json={"email": "admin@example.com", "password": "admin-pass-1234"}).status_code == 200
     owner = next(u for u in client.get(f"/api/marketplaces/{slug}/users").json() if u["email"] == "admin@example.com")
     last_admin = client.put(f"/api/marketplaces/{slug}/users/{owner['id']}/role", json={
-        "marketplaceRole": "marketplace_maintainer",
+        "marketplaceRole": "maintain",
     })
     assert last_admin.status_code == 400
     assert "owner" in last_admin.json()["detail"].lower()
@@ -550,10 +548,10 @@ def test_marketplace_contributor_can_write_but_not_delete_content(client):
     assert created.status_code == 201
     user = created.json()
     grant = client.put(f"/api/marketplaces/{slug}/users/{user['id']}/role", json={
-        "marketplaceRole": "marketplace_contributor",
+        "marketplaceRole": "write",
     })
     assert grant.status_code == 200
-    assert grant.json()["marketplaceRole"] == "marketplace_contributor"
+    assert grant.json()["marketplaceRole"] == "write"
 
     client.cookies.clear()
     assert client.post("/auth/login/local", json={

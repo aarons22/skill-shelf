@@ -83,7 +83,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                     marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
                     marketplace_role_grants.c.principal_type == "user",
                     marketplace_role_grants.c.principal_id == actor.user_id,
-                    marketplace_role_grants.c.role == "marketplace_admin",
+                    marketplace_role_grants.c.role == "admin",
                 )
             ).all()
         ] if actor.user_id is not None else []
@@ -93,7 +93,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                     marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
                     marketplace_role_grants.c.principal_type == "user",
                     marketplace_role_grants.c.principal_id == actor.user_id,
-                    marketplace_role_grants.c.role == "marketplace_maintainer",
+                    marketplace_role_grants.c.role == "maintain",
                 )
             ).all()
         ] if actor.user_id is not None else []
@@ -103,7 +103,7 @@ def me(actor: Actor | None = Depends(get_optional_actor)):
                     marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
                     marketplace_role_grants.c.principal_type == "user",
                     marketplace_role_grants.c.principal_id == actor.user_id,
-                    marketplace_role_grants.c.role == "marketplace_contributor",
+                    marketplace_role_grants.c.role == "write",
                 )
             ).all()
         ] if actor.user_id is not None else []
@@ -371,13 +371,13 @@ def update_marketplace_user_role(
         current_role = _marketplace_role_for_user(conn, slug, user_id)
         if current_role == body.marketplaceRole:
             return _marketplace_user_out(conn, slug, row, marketplace)
-        if current_role == "marketplace_admin" and body.marketplaceRole != "marketplace_admin":
+        if current_role == "admin" and body.marketplaceRole != "admin":
             admin_count = conn.execute(
                 select(marketplace_role_grants.c.principal_id).where(
                     marketplace_role_grants.c.marketplace_slug == slug,
                     marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
                     marketplace_role_grants.c.principal_type == "user",
-                    marketplace_role_grants.c.role == "marketplace_admin",
+                    marketplace_role_grants.c.role == "admin",
                 )
             ).all()
             if len(admin_count) <= 1:
@@ -387,7 +387,7 @@ def update_marketplace_user_role(
             marketplace_role_grants.c.organization_id == DEFAULT_ORGANIZATION_ID,
             marketplace_role_grants.c.principal_type == "user",
             marketplace_role_grants.c.principal_id == user_id,
-            marketplace_role_grants.c.role.in_(["viewer", "marketplace_contributor", "marketplace_maintainer", "marketplace_admin"]),
+            marketplace_role_grants.c.role.in_(["read", "write", "maintain", "admin"]),
         ))
         if body.marketplaceRole != "none":
             conn.execute(insert(marketplace_role_grants).values(
@@ -626,7 +626,7 @@ def _marketplace_role_for_user(conn, marketplace_slug: str, user_id: int) -> str
             )
         ).all()
     }
-    for role in ("marketplace_admin", "marketplace_maintainer", "marketplace_contributor", "viewer"):
+    for role in ("admin", "maintain", "write", "read"):
         if role in roles:
             return role
     return "none"

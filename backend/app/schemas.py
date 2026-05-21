@@ -301,7 +301,7 @@ class WorkspaceSettingsUpdate(BaseModel):
 class PrincipalGrantIn(BaseModel):
     principalType: Literal["user", "group"]
     principalId: int
-    role: Literal["marketplace_admin", "marketplace_maintainer", "marketplace_contributor", "viewer"]
+    role: Literal["admin", "maintain", "write", "read"]
 
 
 class MarketplaceGrantOut(BaseModel):
@@ -317,12 +317,12 @@ class MarketplaceUserOut(BaseModel):
     email: str
     displayName: str
     provider: str
-    marketplaceRole: Literal["none", "viewer", "marketplace_contributor", "marketplace_maintainer", "marketplace_admin"] = "none"
+    marketplaceRole: Literal["none", "read", "write", "maintain", "admin"] = "none"
     isOwner: bool = False
 
 
 class MarketplaceUserRoleUpdate(BaseModel):
-    marketplaceRole: Literal["none", "viewer", "marketplace_contributor", "marketplace_maintainer", "marketplace_admin"]
+    marketplaceRole: Literal["none", "read", "write", "maintain", "admin"]
 
 
 class AccessTokenCreate(BaseModel):

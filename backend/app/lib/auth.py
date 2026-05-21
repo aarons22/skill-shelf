@@ -30,11 +30,11 @@ AccessMode = Literal["public", "authenticated", "restricted"]
 DEFAULT_ORGANIZATION_ID = 1
 ORGANIZATION_ADMIN = "organization_admin"
 MARKETPLACE_CREATOR = "marketplace_creator"
-MARKETPLACE_ADMIN = "marketplace_admin"
-MARKETPLACE_MAINTAINER = "marketplace_maintainer"
-MARKETPLACE_CONTRIBUTOR = "marketplace_contributor"
+MARKETPLACE_ADMIN = "admin"
+MARKETPLACE_MAINTAINER = "maintain"
+MARKETPLACE_CONTRIBUTOR = "write"
 PLUGIN_MAINTAINER = "plugin_maintainer"
-VIEWER = "viewer"
+VIEWER = "read"
 
 
 @dataclass(frozen=True)
