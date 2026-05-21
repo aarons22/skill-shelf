@@ -1,7 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import BrowseMarketplaces from "./pages/BrowseMarketplaces";
 import BrowseMarketplaceDetail from "./pages/BrowseMarketplaceDetail";
-import MarketplacesList from "./pages/MarketplacesList";
 import NewMarketplace from "./pages/NewMarketplace";
 import MarketplaceDetail from "./pages/MarketplaceDetail";
 import PluginEditor from "./pages/PluginEditor";
@@ -37,7 +36,7 @@ export default function App() {
             <Route path="/organization/users" element={<OrganizationAdmin />} />
 
             {/* Marketplace management — requires authenticated org/marketplace admin */}
-            <Route path="/manage" element={<ManageGate><MarketplacesList /></ManageGate>} />
+            <Route path="/manage" element={<Navigate to="/" replace />} />
             <Route path="/manage/marketplaces/new" element={<ManageGate><NewMarketplace /></ManageGate>} />
             <Route path="/manage/marketplaces/:slug" element={<ManageGate><MarketplaceDetail /></ManageGate>} />
             <Route path="/manage/marketplaces/:slug/plugins/new" element={<ManageGate><PluginEditor /></ManageGate>} />

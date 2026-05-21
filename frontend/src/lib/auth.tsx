@@ -16,7 +16,7 @@ export interface Me {
   bootstrapCompleted: boolean;
   mustChangePassword: boolean;
   accessMode: "public" | "authenticated" | "restricted";
-  marketplaceCreation: "authenticated" | "organization_admin";
+  canCreateMarketplace: boolean;
   publicBaseUrl: string;
 }
 

@@ -30,7 +30,6 @@ export default function SetupWizard() {
         ownerName,
         ownerEmail,
         accessMode,
-        marketplaceCreation: "authenticated",
         provider: {
           provider: "local",
           admin: { email, displayName: adminName || email, password },
@@ -42,7 +41,7 @@ export default function SetupWizard() {
       return;
     }
     await refresh();
-    navigate("/manage", { replace: true });
+    navigate("/", { replace: true });
   };
 
   return (

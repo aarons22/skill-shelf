@@ -10,7 +10,6 @@ interface CurrentUser {
 
 interface OrganizationSettings {
   accessMode: "public" | "authenticated" | "restricted";
-  marketplaceCreation: "authenticated" | "organization_admin";
 }
 
 interface AuthProvider {
@@ -37,7 +36,7 @@ interface OrgUser {
   email: string;
   displayName: string;
   provider: string;
-  organizationRole: "organization_admin" | "viewer";
+  organizationRole: "organization_admin" | "marketplace_creator" | "viewer";
   disabledAt?: number | null;
   mustChangePassword: boolean;
 }
@@ -273,20 +272,13 @@ export default function OrganizationAdmin() {
 
         {tab === "access" && settings && (
           <section className="max-w-2xl rounded-lg border border-slate-200 bg-white p-6">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4">
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">Organization access</span>
                 <select value={settings.accessMode} onChange={(e) => saveSettings({ accessMode: e.target.value as OrganizationSettings["accessMode"] })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
                   <option value="public">Public</option>
                   <option value="authenticated">Authenticated</option>
                   <option value="restricted">Restricted</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Marketplace creation</span>
-                <select value={settings.marketplaceCreation} onChange={(e) => saveSettings({ marketplaceCreation: e.target.value as OrganizationSettings["marketplaceCreation"] })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
-                  <option value="authenticated">Authenticated users</option>
-                  <option value="organization_admin">Organization admins</option>
                 </select>
               </label>
             </div>
@@ -407,6 +399,7 @@ export default function OrganizationAdmin() {
                         aria-label={`Organization role for ${user.displayName}`}
                       >
                         <option value="viewer">Viewer</option>
+                        <option value="marketplace_creator">Marketplace creator</option>
                         <option value="organization_admin">Organization admin</option>
                       </select>
                       {user.provider === "local" && (

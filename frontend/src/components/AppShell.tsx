@@ -23,7 +23,6 @@ export default function AppShell() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <nav className="flex items-center gap-5">
             <Link to="/" className="font-semibold text-slate-950">SkillShelf</Link>
-            {me?.authenticated && <Link to="/manage" className="text-sm text-slate-600 hover:text-slate-950">Manage</Link>}
             {me?.organizationAdmin && <Link to="/organization" className="text-sm text-slate-600 hover:text-slate-950">Organization</Link>}
           </nav>
           {me?.authenticated ? (
