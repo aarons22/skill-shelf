@@ -42,9 +42,12 @@ export default function Login() {
   };
 
   return (
-    <main className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-xl font-semibold text-slate-950">Sign in</h1>
-      <div className="mt-6 space-y-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4">
+      <div className="mb-8 text-center">
+        <p className="text-2xl font-bold tracking-tight text-slate-950">SkillShelf</p>
+        <p className="mt-1 text-sm text-slate-500">Sign in to your team's SkillShelf</p>
+      </div>
+      <main className="w-full max-w-md space-y-4">
         {providers.length === 0 && <p className="text-sm text-slate-600">No auth providers configured. Contact your administrator.</p>}
         {providers.map((provider) => (
           <section key={provider.slug} className="rounded-lg border border-slate-200 bg-white p-5">
@@ -54,6 +57,7 @@ export default function Login() {
                 <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                 <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                 <button className="w-full rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Sign in</button>
+                <p className="text-xs text-slate-400">Forgot your password? Ask your admin to run <code className="font-mono">python -m skillshelf reset-password &lt;email&gt;</code>.</p>
               </form>
             )}
             {provider.kind === "redirect" && (
@@ -64,8 +68,8 @@ export default function Login() {
             )}
           </section>
         ))}
-      </div>
-      {message && <p className="mt-4 text-sm text-red-600">{message}</p>}
-    </main>
+        {message && <p className="text-sm text-red-600">{message}</p>}
+      </main>
+    </div>
   );
 }

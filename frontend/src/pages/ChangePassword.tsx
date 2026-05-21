@@ -25,16 +25,21 @@ export default function ChangePassword() {
   };
 
   return (
-    <main className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-xl font-semibold text-slate-950">Change password</h1>
-      <form onSubmit={submit} className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
-        <div className="space-y-3">
-          <input value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" type="password" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" type="password" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          <button className="w-full rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save password</button>
-        </div>
-      </form>
-      {message && <p className="mt-4 text-sm text-red-600">{message}</p>}
-    </main>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4">
+      <div className="mb-8 text-center">
+        <p className="text-2xl font-bold tracking-tight text-slate-950">SkillShelf</p>
+        <p className="mt-1 text-sm text-slate-500">Set a new password to continue</p>
+      </div>
+      <main className="w-full max-w-md">
+        <form onSubmit={submit} className="rounded-lg border border-slate-200 bg-white p-5">
+          <div className="space-y-3">
+            <input value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" type="password" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" type="password" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            <button className="w-full rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save password</button>
+          </div>
+        </form>
+        {message && <p className="mt-4 text-sm text-red-600">{message}</p>}
+      </main>
+    </div>
   );
 }
