@@ -34,7 +34,7 @@ export default function BrowseMarketplaces() {
         <h1 className="text-lg font-semibold text-slate-950">Marketplaces</h1>
         {me?.canCreateMarketplace && (
           <Link
-            to="/manage/marketplaces/new"
+            to="/manage/new"
             className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >
             New marketplace
@@ -49,7 +49,7 @@ export default function BrowseMarketplaces() {
             <>
               <p className="mb-4 text-slate-500">No marketplaces yet.</p>
               <Link
-                to="/manage/marketplaces/new"
+                to="/manage/new"
                 className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
               >
                 Create your first marketplace
@@ -78,7 +78,7 @@ export default function BrowseMarketplaces() {
                 <span className="shrink-0 font-mono text-xs text-slate-400">{m.slug}</span>
                 {canManage(m.slug) && (
                   <Link
-                    to={`/manage/marketplaces/${m.slug}`}
+                    to={`/manage/${m.slug}`}
                     className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
                     onClick={(e) => e.stopPropagation()}
                   >

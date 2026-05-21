@@ -70,7 +70,7 @@ export default function ComponentEditor() {
   }>();
   const navigate = useNavigate();
   const isNew = !componentSlug;
-  const pluginPath = `/manage/marketplaces/${slug}/plugins/${pluginSlug}/edit`;
+  const pluginPath = `/manage/${slug}/plugins/${pluginSlug}/edit`;
 
   const [marketplace, setMarketplace] = useState<{ slug: string; displayName: string } | null>(null);
   const [plugin, setPlugin] = useState<{ slug: string; displayName: string } | null>(null);
@@ -90,7 +90,7 @@ export default function ComponentEditor() {
         fetch(`/api/marketplaces/${slug}/plugins/${pluginSlug}`),
       ]);
       if (!mktRes.ok) { navigate("/manage"); return; }
-      if (!plugRes.ok) { navigate(`/manage/marketplaces/${slug}`); return; }
+      if (!plugRes.ok) { navigate(`/manage/${slug}`); return; }
       const [mkt, plug] = await Promise.all([mktRes.json(), plugRes.json()]);
       setMarketplace(mkt);
       setPlugin(plug);
@@ -137,7 +137,7 @@ export default function ComponentEditor() {
         <nav className="mb-4 flex flex-wrap items-center gap-2 text-sm">
           <Link to="/manage" className="text-slate-500 hover:text-slate-900">Marketplaces</Link>
           <span className="text-slate-300">/</span>
-          <Link to={`/manage/marketplaces/${slug}`} className="text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
+          <Link to={`/manage/${slug}`} className="text-slate-500 hover:text-slate-900">{marketplace.displayName}</Link>
           <span className="text-slate-300">/</span>
           <Link to={pluginPath} className="text-slate-500 hover:text-slate-900">{plugin.displayName}</Link>
           <span className="text-slate-300">/</span>

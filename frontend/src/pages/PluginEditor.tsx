@@ -44,7 +44,7 @@ export default function PluginEditor() {
   const location = useLocation();
   const { me } = useMe();
   const isEditing = Boolean(pluginSlug);
-  const detailPath = useMemo(() => `/manage/marketplaces/${slug ?? ""}`, [slug]);
+  const detailPath = useMemo(() => `/manage/${slug ?? ""}`, [slug]);
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
   const [plugin, setPlugin] = useState<Plugin | null>(null);
   const [form, setForm] = useState({ displayName: "", description: "" });
@@ -115,7 +115,7 @@ export default function PluginEditor() {
       return;
     }
     const data = await res.json();
-    navigate(`/manage/marketplaces/${slug}/plugins/${data.slug}/edit`);
+    navigate(`/manage/${slug}/plugins/${data.slug}/edit`);
   };
 
   async function deleteComponent(path: string, itemSlug: string) {
@@ -191,7 +191,7 @@ export default function PluginEditor() {
                 items={items[editorTab] ?? []}
                 path={editorTab as ComponentType}
                 docUrl={DOC_URLS[editorTab as ComponentType]}
-                onAdd={() => navigate(`/manage/marketplaces/${slug}/plugins/${pluginSlug}/${editorTab}/new`)}
+                onAdd={() => navigate(`/manage/${slug}/plugins/${pluginSlug}/${editorTab}/new`)}
                 onDelete={(item) => deleteComponent(editorTab as ComponentType, item)}
                 slug={slug!}
                 pluginSlug={pluginSlug}
@@ -251,7 +251,7 @@ function ComponentPanel({ title, items, path, docUrl, onAdd, onDelete, slug, plu
               </span>
               <div className="flex shrink-0 items-center gap-3">
                 <Link
-                  to={`/manage/marketplaces/${slug}/plugins/${pluginSlug}/${path}/${item.slug}/edit`}
+                  to={`/manage/${slug}/plugins/${pluginSlug}/${path}/${item.slug}/edit`}
                   className="text-xs font-medium text-slate-600 hover:text-slate-900"
                 >
                   Edit

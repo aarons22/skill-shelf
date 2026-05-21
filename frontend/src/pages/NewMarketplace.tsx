@@ -33,7 +33,7 @@ export default function NewMarketplace() {
         return;
       }
       const data = await r.json();
-      navigate(`/manage/marketplaces/${data.slug}`);
+      navigate(`/manage/${data.slug}`);
     } finally {
       setSaving(false);
     }

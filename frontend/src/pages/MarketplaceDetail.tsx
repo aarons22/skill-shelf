@@ -36,15 +36,19 @@ interface MarketplaceUser {
 }
 
 type Tab = "plugins" | "details" | "people" | "tokens" | "danger";
+const ALL_TABS: readonly Tab[] = ["plugins", "details", "people", "tokens", "danger"] as const;
+const ADMIN_TABS: readonly Tab[] = ["details", "people", "tokens", "danger"] as const;
 
 export default function MarketplaceDetail() {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug, tab: tabParam } = useParams<{ slug: string; tab?: string }>();
   const navigate = useNavigate();
   const { me } = useMe();
   const [marketplace, setMarketplace] = useState<Marketplace | null>(null);
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [users, setUsers] = useState<MarketplaceUser[]>([]);
-  const [tab, setTab] = useState<Tab>("plugins");
+  const tab: Tab = (ALL_TABS as readonly string[]).includes(tabParam ?? "")
+    ? (tabParam as Tab)
+    : "plugins";
   const [loading, setLoading] = useState(true);
   const [settingsForm, setSettingsForm] = useState({ displayName: "" });
   const [visibility, setVisibility] = useState<"workspace" | "restricted">("workspace");
@@ -89,11 +93,10 @@ export default function MarketplaceDetail() {
   );
 
   useEffect(() => {
-    const adminTabs: Tab[] = ["details", "people", "tokens", "danger"];
-    if (adminTabs.includes(tab) && marketplace && !isMarketplaceAdmin) {
-      setTab("plugins");
+    if (ADMIN_TABS.includes(tab) && marketplace && !isMarketplaceAdmin) {
+      navigate(`/manage/${marketplace.slug}`, { replace: true });
     }
-  }, [tab, marketplace, isMarketplaceAdmin]);
+  }, [tab, marketplace, isMarketplaceAdmin, navigate]);
 
   useEffect(() => {
     const query = userSearch.trim();
@@ -180,29 +183,29 @@ export default function MarketplaceDetail() {
         </nav>
 
         <div className="mb-6 flex gap-6 border-b border-slate-200">
-          {(["plugins", ...(isMarketplaceAdmin ? ["details", "people", "tokens", "danger"] : [])] as Tab[]).map((item) => (
-            <button
+          {(["plugins", ...(isMarketplaceAdmin ? ADMIN_TABS : [])] as Tab[]).map((item) => (
+            <Link
               key={item}
-              onClick={() => setTab(item)}
+              to={item === "plugins" ? `/manage/${slug}` : `/manage/${slug}/${item}`}
               className={`pb-2 text-sm font-medium capitalize ${
                 tab === item ? "border-b-2 border-slate-950 text-slate-950" : "text-slate-500 hover:text-slate-900"
               }`}
             >
               {item}
-            </button>
+            </Link>
           ))}
         </div>
 
         {tab === "plugins" && (
           <div>
             <div className="mb-4 flex justify-end">
-              <Link to={`/manage/marketplaces/${slug}/plugins/new`} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              <Link to={`/manage/${slug}/plugins/new`} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
                 Add plugin
               </Link>
             </div>
             {plugins.length === 0 ? (
               <p className="py-12 text-center text-sm text-slate-500">
-                No plugins yet. <Link to={`/manage/marketplaces/${slug}/plugins/new`} className="font-medium text-slate-950 hover:underline">Create one</Link>.
+                No plugins yet. <Link to={`/manage/${slug}/plugins/new`} className="font-medium text-slate-950 hover:underline">Create one</Link>.
               </p>
             ) : (
               <ul className="space-y-3">
@@ -216,7 +219,7 @@ export default function MarketplaceDetail() {
                         <p className="mt-2 text-xs text-slate-500">{componentSummary(plugin)}</p>
                       </div>
                       <div className="flex shrink-0 gap-3">
-                        <Link to={`/manage/marketplaces/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
+                        <Link to={`/manage/${slug}/plugins/${plugin.slug}/edit`} className="text-sm text-slate-700 hover:underline">Edit</Link>
                         {canDeleteContent && (
                           <button onClick={() => handleDeletePlugin(plugin.slug)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
                         )}

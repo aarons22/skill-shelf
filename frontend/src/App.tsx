@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import BrowseMarketplaces from "./pages/BrowseMarketplaces";
 import BrowseMarketplaceDetail from "./pages/BrowseMarketplaceDetail";
 import NewMarketplace from "./pages/NewMarketplace";
@@ -37,21 +37,35 @@ export default function App() {
 
             {/* Marketplace management — requires authenticated org/marketplace admin */}
             <Route path="/manage" element={<Navigate to="/" replace />} />
-            <Route path="/manage/marketplaces/new" element={<ManageGate><NewMarketplace /></ManageGate>} />
-            <Route path="/manage/marketplaces/:slug" element={<ManageGate><MarketplaceDetail /></ManageGate>} />
-            <Route path="/manage/marketplaces/:slug/plugins/new" element={<ManageGate><PluginEditor /></ManageGate>} />
-            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/edit" element={<ManageGate><PluginEditor /></ManageGate>} />
-            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/:componentType/new" element={<ManageGate><ComponentEditor /></ManageGate>} />
-            <Route path="/manage/marketplaces/:slug/plugins/:pluginSlug/:componentType/:componentSlug/edit" element={<ManageGate><ComponentEditor /></ManageGate>} />
+            <Route path="/manage/new" element={<ManageGate><NewMarketplace /></ManageGate>} />
+            <Route path="/manage/:slug/plugins/new" element={<ManageGate><PluginEditor /></ManageGate>} />
+            <Route path="/manage/:slug/plugins/:pluginSlug/edit" element={<ManageGate><PluginEditor /></ManageGate>} />
+            <Route path="/manage/:slug/plugins/:pluginSlug/:componentType/new" element={<ManageGate><ComponentEditor /></ManageGate>} />
+            <Route path="/manage/:slug/plugins/:pluginSlug/:componentType/:componentSlug/edit" element={<ManageGate><ComponentEditor /></ManageGate>} />
+            <Route path="/manage/:slug" element={<ManageGate><MarketplaceDetail /></ManageGate>} />
+            <Route path="/manage/:slug/:tab" element={<ManageGate><MarketplaceDetail /></ManageGate>} />
 
-            {/* Legacy admin redirects */}
+            {/* Legacy redirects */}
+            <Route path="/manage/marketplaces/new" element={<Navigate to="/manage/new" replace />} />
+            <Route path="/manage/marketplaces/:slug/*" element={<RedirectStripMarketplaces />} />
+            <Route path="/manage/marketplaces/:slug" element={<RedirectStripMarketplaces />} />
             <Route path="/admin" element={<Navigate to="/manage" replace />} />
-            <Route path="/admin/new" element={<Navigate to="/manage/marketplaces/new" replace />} />
-            <Route path="/admin/marketplaces/:slug" element={<Navigate to={window.location.pathname.replace("/admin", "/manage")} replace />} />
-            <Route path="/admin/marketplaces/:slug/*" element={<Navigate to={window.location.pathname.replace("/admin", "/manage")} replace />} />
+            <Route path="/admin/new" element={<Navigate to="/manage/new" replace />} />
+            <Route path="/admin/marketplaces/:slug" element={<RedirectStripAdmin />} />
+            <Route path="/admin/marketplaces/:slug/*" element={<RedirectStripAdmin />} />
           </Route>
         </Routes>
       </AuthProvider>
     </BrowserRouter>
   );
+}
+
+function RedirectStripMarketplaces() {
+  const { pathname } = useLocation();
+  return <Navigate to={pathname.replace("/manage/marketplaces/", "/manage/")} replace />;
+}
+
+function RedirectStripAdmin() {
+  const { pathname } = useLocation();
+  return <Navigate to={pathname.replace("/admin/marketplaces/", "/manage/")} replace />;
 }
