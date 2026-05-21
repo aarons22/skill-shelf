@@ -63,6 +63,7 @@ interface OidcPreset {
   domainPlaceholder: string;
   deriveIssuer: (domain: string) => string;
   steps: () => string[];
+  auth0AppUrls?: boolean;
 }
 
 const OIDC_PRESETS: OidcPreset[] = [
@@ -75,9 +76,10 @@ const OIDC_PRESETS: OidcPreset[] = [
     deriveIssuer: (d) => `https://${d.replace(/^https?:\/\//, "").replace(/\/$/, "")}/`,
     steps: () => [
       "Go to Auth0 → Applications → Create Application → Regular Web App.",
-      "Set Allowed Callback URLs to the callback URL shown above.",
+      "Set Allowed Callback URLs to the callback URL shown below.",
       "Copy the Client ID and Client Secret into the fields below.",
     ],
+    auth0AppUrls: true,
   },
   {
     id: "okta",
@@ -376,6 +378,11 @@ export default function OrganizationAdmin() {
                               <CopyLine label="GitHub callback URL" value={provider.callbackUrl || callbackUrlFor(provider.slug)} />
                             </div>
                           )}
+                          {provider.providerType === "oidc" && (
+                            <div className="mt-3 rounded-md bg-slate-50 p-3">
+                              <CopyLine label={`${provider.displayName} callback URL`} value={provider.callbackUrl || callbackUrlFor(provider.slug)} />
+                            </div>
+                          )}
                           {!provider.secretConfigured && provider.providerType !== "trusted_header" && provider.providerType !== "trusted_headers" && provider.providerType !== "local" && (
                             <p className="mt-2 text-xs text-amber-700">Client secret not configured</p>
                           )}
@@ -630,12 +637,26 @@ function GitHubSetupInstructions({ slug, publicBaseUrl }: { slug: string; public
 
 function OidcSetupInstructions({ preset, slug, publicBaseUrl }: { preset: OidcPreset; slug: string; publicBaseUrl: string }) {
   const callbackUrl = callbackUrlFor(slug || preset.id, publicBaseUrl);
+  const baseUrl = publicBaseUrl.replace(/\/$/, "");
   const steps = preset.steps();
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
       <h3 className="text-sm font-semibold text-amber-950">Before saving {preset.label}</h3>
-      <div className="mt-3">
+      <div className="mt-3 space-y-3">
         <CopyLine label="Callback URL" value={callbackUrl} />
+        {preset.auth0AppUrls && (
+          <div className="space-y-3 rounded-md border border-amber-200 bg-white/60 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-amber-900">Auth0 application URLs</p>
+            <CopyLine label="Allowed Callback URLs" value={callbackUrl} />
+            <CopyLine label="Application Login URI" value={`${baseUrl}/login`} />
+            <CopyLine label="Allowed Logout URLs" value={`${baseUrl}/login`} />
+            <CopyLine label="Allowed Web Origins" value={baseUrl} />
+            <CopyLine label="Allowed Origins (CORS)" value={baseUrl} />
+            <p className="text-xs text-amber-800">
+              SkillShelf requires the callback URL. The other Auth0 fields are optional for this server-side OIDC flow, but these values match this deployment if your Auth0 app enforces them.
+            </p>
+          </div>
+        )}
       </div>
       <ol className="mt-3 list-inside list-decimal space-y-1.5 text-sm text-amber-900">
         {steps.map((step, i) => <li key={i}>{step}</li>)}

@@ -5,6 +5,7 @@ export default function CopyLine({ label, value }: { label: string; value: strin
       <div className="flex items-center gap-2">
         <code className="min-w-0 flex-1 break-all font-mono text-sm text-slate-900">{value}</code>
         <button
+          type="button"
           onClick={() => navigator.clipboard.writeText(value)}
           className="whitespace-nowrap text-xs font-medium text-slate-700 hover:text-slate-950"
         >
