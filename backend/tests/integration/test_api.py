@@ -75,6 +75,7 @@ def login_admin(client):
 
 def create_oidc_provider(client, slug: str, allowlist: dict | None = None, group_claim: str = "groups"):
     login_admin(client)
+    # Supply explicit endpoints so save-time discovery validation is bypassed for these auth-flow tests.
     r = client.post("/api/organization/auth-providers", json={
         "slug": slug,
         "displayName": f"OIDC {slug}",
@@ -82,6 +83,9 @@ def create_oidc_provider(client, slug: str, allowlist: dict | None = None, group
         "clientId": f"{slug}-client",
         "clientSecret": f"{slug}-secret",
         "issuerUrl": "https://issuer.example.com",
+        "authorizationUrl": "https://issuer.example.com/oauth/authorize",
+        "tokenUrl": "https://issuer.example.com/oauth/token",
+        "userinfoUrl": "https://issuer.example.com/oauth/userinfo",
         "scopes": "openid email profile",
         "groupClaim": group_claim,
         "allowlist": allowlist or {},
@@ -554,6 +558,25 @@ def test_auth_provider_stores_client_secret_and_never_returns_it(client):
     })
     assert r2.status_code == 201
     assert r2.json()["scopes"] == "read:user user:email read:org"
+
+
+def test_oidc_provider_save_validates_issuer_discovery(client):
+    """Creating an OIDC provider with an unreachable issuer URL must return 400 without persisting."""
+    login_admin(client)
+    before = client.get("/api/organization/auth-providers").json()
+    r = client.post("/api/organization/auth-providers", json={
+        "slug": "bad-issuer-test",
+        "displayName": "Bad OIDC",
+        "providerType": "oidc",
+        "clientId": "x",
+        "clientSecret": "x",
+        "issuerUrl": "https://this-host-does-not-exist.invalid",
+        "scopes": "openid email profile",
+    })
+    assert r.status_code == 400, r.text
+    assert "discovery" in r.json()["detail"].lower() or "reach" in r.json()["detail"].lower()
+    after = client.get("/api/organization/auth-providers").json()
+    assert len(after) == len(before), "provider must not be persisted after validation failure"
 
 
 def test_oidc_redirect_callback_session_and_group_sync(client, monkeypatch):

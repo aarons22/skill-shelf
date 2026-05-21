@@ -581,6 +581,25 @@ def run_verification() -> None:
             client.cookies.clear()
             print("  Audit log visibility is admin-only  ✓")
 
+            print("[verify] Step 16b: OIDC provider save-time issuer validation")
+            r = client.post("/auth/login/local", json={"email": "admin@example.com", "password": "harness-pass-1234"})
+            assert r.status_code == 200, f"Admin re-login for OIDC validation step failed: {r.status_code}"
+            before_providers = client.get("/api/organization/auth-providers").json()
+            r = client.post("/api/organization/auth-providers", json={
+                "slug": "bad-issuer-verify",
+                "displayName": "Bad OIDC",
+                "providerType": "oidc",
+                "clientId": "x",
+                "clientSecret": "x",
+                "issuerUrl": "https://this-host-does-not-exist.invalid",
+                "scopes": "openid email profile",
+            })
+            assert r.status_code == 400, f"Expected 400 for bogus issuer, got {r.status_code}: {r.text}"
+            after_providers = client.get("/api/organization/auth-providers").json()
+            assert len(after_providers) == len(before_providers), "Provider must not be persisted after validation failure"
+            print("  OIDC issuer validation blocks bad providers at save time  ✓")
+            client.cookies.clear()
+
             print("[verify] Step 17: recovery CLI reset-password")
             result = subprocess.run(
                 [sys.executable, "-m", "skillshelf", "reset-password", "admin@example.com"],

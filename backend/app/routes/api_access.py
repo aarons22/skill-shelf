@@ -26,6 +26,7 @@ from app.lib.auth import (
     upsert_user,
 )
 from app.lib.local_accounts import generate_temp_password, hash_password
+from app.lib.oidc_discovery import fetch_oidc_metadata
 from app.lib.provider_allowlist import derive_github_scopes, parse_allowlist
 from app.lib.setup_state import is_required
 from app.models import access_tokens, audit_events, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_role_grants, organization_settings, users
@@ -180,6 +181,10 @@ def create_auth_provider(body: AuthProviderIn, actor: Actor | None = Depends(get
         if exists is not None:
             raise HTTPException(status_code=409, detail="Auth provider slug already exists")
         values = _provider_values(body.model_dump(), now)
+        if values.get("provider_type") == "oidc" and not (
+            values.get("authorization_url") and values.get("token_url") and values.get("userinfo_url")
+        ):
+            fetch_oidc_metadata(values.get("issuer_url", ""))
         values["organization_id"] = DEFAULT_ORGANIZATION_ID
         values["created_at"] = now
         conn.execute(insert(auth_providers).values(**values))
@@ -207,6 +212,12 @@ def update_auth_provider(provider_slug: str, body: AuthProviderUpdate, actor: Ac
         if row is None:
             raise HTTPException(status_code=404, detail="Auth provider not found")
         updates = _provider_values(body.model_dump(exclude_unset=True), now)
+        if "issuer_url" in updates and row["provider_type"] == "oidc":
+            merged_auth = updates.get("authorization_url") or row["authorization_url"]
+            merged_token = updates.get("token_url") or row["token_url"]
+            merged_userinfo = updates.get("userinfo_url") or row["userinfo_url"]
+            if not (merged_auth and merged_token and merged_userinfo):
+                fetch_oidc_metadata(updates.get("issuer_url", ""))
         if updates:
             conn.execute(update(auth_providers).where(auth_providers.c.id == row["id"]).values(**updates))
             record_audit(conn, actor, "auth_provider.update", "auth_provider", provider_slug, {"fields": sorted(updates)})

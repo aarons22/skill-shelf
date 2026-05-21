@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.db import get_connection, get_transaction
 from app.lib.auth import DEFAULT_ORGANIZATION_ID, sync_header_groups, upsert_user
 from app.lib.local_accounts import hash_password, verify_password
+from app.lib.oidc_discovery import fetch_oidc_metadata
 from app.lib.provider_allowlist import enforce
 from app.lib.session import COOKIE_NAME, STATE_COOKIE_NAME, read_payload, sign_payload
 from app.models import auth_providers, local_account_credentials, users
@@ -209,12 +210,7 @@ def _userinfo_url(provider: dict) -> str | None:
 
 
 def _oidc_metadata(provider: dict) -> dict:
-    if not provider["issuer_url"]:
-        raise HTTPException(status_code=400, detail="OIDC provider requires an issuer URL or explicit endpoints")
-    url = provider["issuer_url"].rstrip("/") + "/.well-known/openid-configuration"
-    r = httpx.get(url, timeout=10)
-    r.raise_for_status()
-    return r.json()
+    return fetch_oidc_metadata(provider["issuer_url"])
 
 
 def _exchange_code(provider: dict, code: str, redirect_uri: str, secret: str) -> dict:

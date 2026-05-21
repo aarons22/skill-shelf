@@ -340,7 +340,7 @@ All under `/api`, JSON in / JSON out. Access is controlled by organization mode 
 | `GET` | `/api/me` | Current user from session or trusted identity headers |
 | `GET` | `/api/organization/settings` | Organization access mode and marketplace creation policy |
 | `PUT` | `/api/organization/settings` | Organization-admin only; mode is `public`, `authenticated`, or `restricted` |
-| `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; PUT without `clientSecret` preserves stored value |
+| `GET/POST/PUT/DELETE` | `/api/organization/auth-providers` | Organization-admin login provider metadata; PUT without `clientSecret` preserves stored value; POST/PUT for OIDC providers validates the issuer discovery document at save time (400 if unreachable) unless all three endpoint overrides (`authorizationUrl`, `tokenUrl`, `userinfoUrl`) are supplied |
 | `GET` | `/api/audit-events` | Organization-admin audit event list; supports `limit`, `action`, `targetType`, and `actorUserId` filters |
 | `GET/POST/DELETE` | `/api/marketplaces/{slug}/grants` | Marketplace-admin grant management for users/groups |
 | `GET` | `/api/agent-access` | Returns/creates the signed-in user's agent access token for authenticated snippets |
