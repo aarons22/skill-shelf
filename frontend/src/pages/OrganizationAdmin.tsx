@@ -63,6 +63,7 @@ interface OidcPreset {
   domainPlaceholder: string;
   deriveIssuer: (domain: string) => string;
   steps: () => string[];
+  auth0AppUrls?: boolean;
 }
 
 const OIDC_PRESETS: OidcPreset[] = [
@@ -75,9 +76,10 @@ const OIDC_PRESETS: OidcPreset[] = [
     deriveIssuer: (d) => `https://${d.replace(/^https?:\/\//, "").replace(/\/$/, "")}/`,
     steps: () => [
       "Go to Auth0 → Applications → Create Application → Regular Web App.",
-      "Set Allowed Callback URLs to the callback URL shown above.",
+      "Set Allowed Callback URLs to the callback URL shown below.",
       "Copy the Client ID and Client Secret into the fields below.",
     ],
+    auth0AppUrls: true,
   },
   {
     id: "okta",
@@ -181,6 +183,7 @@ export default function OrganizationAdmin() {
   const [tempPassword, setTempPassword] = useState("");
   const [message, setMessage] = useState("");
   const [providerForm, setProviderForm] = useState<ProviderFormState | null>(null);
+  const [editingProviderSlug, setEditingProviderSlug] = useState<string | null>(null);
   const [saveError, setSaveError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -253,7 +256,7 @@ export default function OrganizationAdmin() {
     }
 
     const { preset: _preset, domainValue: _dv, advancedOpen: _ao, groupClaimEnabled, endpointOverrideEnabled, ...rest } = providerForm;
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...rest,
       issuerUrl,
       groupClaim: groupClaimEnabled ? rest.groupClaim : "",
@@ -262,18 +265,57 @@ export default function OrganizationAdmin() {
       userinfoUrl: endpointOverrideEnabled ? rest.userinfoUrl : "",
     };
 
-    const r = await fetch("/api/organization/auth-providers", {
-      method: "POST",
+    // When editing, omit clientSecret from the payload if the user left it blank — the backend
+    // preserves the stored value when the field is absent from a PUT body.
+    if (editingProviderSlug && !rest.clientSecret) {
+      delete payload.clientSecret;
+    }
+
+    const url = editingProviderSlug
+      ? `/api/organization/auth-providers/${editingProviderSlug}`
+      : "/api/organization/auth-providers";
+    const r = await fetch(url, {
+      method: editingProviderSlug ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     if (r.ok) {
       setProviderForm(null);
+      setEditingProviderSlug(null);
       load();
     } else {
       const data = await r.json().catch(() => ({}));
       setSaveError(data.detail || "Could not save provider.");
     }
+  };
+
+  const editProvider = (provider: AuthProvider) => {
+    setSaveError("");
+    const presetId = detectPreset(provider);
+    const preset = OIDC_PRESETS.find((p) => p.id === presetId);
+    const domainValue = preset ? reverseDomain(presetId, provider.issuerUrl ?? "") : (provider.issuerUrl ?? "");
+    const hasEndpointOverrides = !!(provider.authorizationUrl || provider.tokenUrl || provider.userinfoUrl);
+    setProviderForm({
+      preset: presetId,
+      domainValue,
+      slug: provider.slug,
+      displayName: provider.displayName,
+      providerType: provider.providerType as "github" | "oidc" | "trusted_header",
+      enabled: provider.enabled,
+      clientId: provider.clientId,
+      clientSecret: "",
+      issuerUrl: provider.issuerUrl ?? "",
+      authorizationUrl: provider.authorizationUrl ?? "",
+      tokenUrl: provider.tokenUrl ?? "",
+      userinfoUrl: provider.userinfoUrl ?? "",
+      scopes: provider.scopes,
+      groupClaim: provider.groupClaim ?? "",
+      allowedOrgs: provider.allowedOrgs ?? "",
+      advancedOpen: false,
+      groupClaimEnabled: !!provider.groupClaim,
+      endpointOverrideEnabled: hasEndpointOverrides,
+    });
+    setEditingProviderSlug(provider.slug);
   };
 
   const updateProvider = async (provider: AuthProvider, updates: Partial<AuthProvider>) => {
@@ -371,11 +413,7 @@ export default function OrganizationAdmin() {
                         <div>
                           <p className="font-medium text-slate-950">{provider.displayName}</p>
                           <p className="text-xs text-slate-500">{provider.providerType} · {provider.enabled ? "enabled" : "disabled"}</p>
-                          {provider.providerType === "github" && (
-                            <div className="mt-3 rounded-md bg-slate-50 p-3">
-                              <CopyLine label="GitHub callback URL" value={provider.callbackUrl || callbackUrlFor(provider.slug)} />
-                            </div>
-                          )}
+                          <ProviderDetails provider={provider} publicBaseUrl={me.publicBaseUrl} />
                           {!provider.secretConfigured && provider.providerType !== "trusted_header" && provider.providerType !== "trusted_headers" && provider.providerType !== "local" && (
                             <p className="mt-2 text-xs text-amber-700">Client secret not configured</p>
                           )}
@@ -385,6 +423,9 @@ export default function OrganizationAdmin() {
                             {provider.enabled ? "Disable" : "Enable"}
                           </button>
                           {provider.providerType !== "local" && <a href={provider.loginUrl} className="text-sm text-slate-700 hover:underline">Test login</a>}
+                          {provider.providerType !== "local" && (
+                            <button type="button" onClick={() => editProvider(provider)} className="text-sm text-slate-700 hover:underline">Edit</button>
+                          )}
                           <button type="button" onClick={() => deleteProvider(provider)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
                         </div>
                       </div>
@@ -395,7 +436,7 @@ export default function OrganizationAdmin() {
             </section>
 
             <div className="rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="mb-4 text-sm font-semibold text-slate-800">Add login provider</h2>
+              <h2 className="mb-4 text-sm font-semibold text-slate-800">{editingProviderSlug ? "Edit login provider" : "Add login provider"}</h2>
               {providerForm === null ? (
                 <div className="space-y-2">
                   <button
@@ -448,15 +489,23 @@ export default function OrganizationAdmin() {
                           type="password"
                           autoComplete="off"
                           value={providerForm.clientSecret}
+                          placeholder={editingProviderSlug ? "Leave blank to keep existing secret" : undefined}
                           onChange={(e) => setProviderForm((f) => f && ({ ...f, clientSecret: e.target.value }))}
-                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400"
                         />
                       </label>
                     </>
                   )}
                   {providerForm.providerType !== "trusted_header" && (
                     <AdvancedDisclosure open={providerForm.advancedOpen} onToggle={() => setProviderForm((f) => f && ({ ...f, advancedOpen: !f.advancedOpen }))}>
-                      <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
+                      {editingProviderSlug ? (
+                        <div>
+                          <span className="mb-1 block text-sm font-medium text-slate-700">Slug</span>
+                          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">{providerForm.slug}</p>
+                        </div>
+                      ) : (
+                        <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
+                      )}
                       {providerForm.providerType === "oidc" && (
                         <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => f && ({ ...f, scopes: v }))} />
                       )}
@@ -489,8 +538,8 @@ export default function OrganizationAdmin() {
                   )}
                   {saveError && <p className="text-sm text-red-600">{saveError}</p>}
                   <div className="flex gap-3 pt-1">
-                    <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save provider</button>
-                    <button type="button" onClick={() => { setProviderForm(null); setSaveError(""); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+                    <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">{editingProviderSlug ? "Update provider" : "Save provider"}</button>
+                    <button type="button" onClick={() => { setProviderForm(null); setEditingProviderSlug(null); setSaveError(""); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
                   </div>
                 </form>
               )}
@@ -615,6 +664,114 @@ function callbackUrlFor(slug: string, publicBaseUrl = window.location.origin) {
   return `${publicBaseUrl.replace(/\/$/, "")}/auth/callback/${cleanSlug}`;
 }
 
+function detectPreset(provider: AuthProvider): string {
+  if (provider.providerType === "github") return "github";
+  if (provider.providerType === "trusted_header" || provider.providerType === "trusted_headers") return "trusted_header";
+  if (OIDC_PRESETS.some((p) => p.id === provider.slug)) return provider.slug;
+  const issuer = provider.issuerUrl ?? "";
+  if (issuer.includes(".auth0.com")) return "auth0";
+  if (issuer.includes(".okta.com") || issuer.includes("/oauth2/")) return "okta";
+  if (issuer.includes("microsoftonline.com")) return "entra";
+  if (issuer.includes("accounts.google.com")) return "google";
+  return "oidc";
+}
+
+function reverseDomain(presetId: string, issuerUrl: string): string {
+  if (presetId === "auth0") return issuerUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (presetId === "okta") return issuerUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (presetId === "entra") {
+    const m = issuerUrl.match(/microsoftonline\.com\/([^/]+)/);
+    return m ? m[1] : issuerUrl;
+  }
+  return issuerUrl;
+}
+
+function absoluteUrl(path: string, publicBaseUrl: string) {
+  if (/^https?:\/\//.test(path)) return path;
+  return `${publicBaseUrl.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function providerLooksLikeAuth0(provider: AuthProvider) {
+  const name = `${provider.displayName} ${provider.issuerUrl ?? ""}`.toLowerCase();
+  return name.includes("auth0");
+}
+
+function ProviderDetails({ provider, publicBaseUrl }: { provider: AuthProvider; publicBaseUrl: string }) {
+  const canShowOAuthDetails = provider.providerType === "github" || provider.providerType === "oidc";
+  const callbackUrl = provider.callbackUrl || callbackUrlFor(provider.slug, publicBaseUrl);
+
+  if (!canShowOAuthDetails) {
+    return (
+      <details className="mt-3 rounded-md bg-slate-50 p-3">
+        <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-900">Provider details</summary>
+        <div className="mt-3 space-y-3">
+          <CopyLine label="Provider slug" value={provider.slug} />
+          {provider.loginUrl && <CopyLine label="Login URL" value={absoluteUrl(provider.loginUrl, publicBaseUrl)} />}
+        </div>
+      </details>
+    );
+  }
+
+  return (
+    <details className="mt-3 rounded-md bg-slate-50 p-3">
+      <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-900">Provider details</summary>
+      <div className="mt-3 space-y-4">
+        <div className="space-y-3">
+          <CopyLine label="Callback URL" value={callbackUrl} />
+          <CopyLine label="Login URL" value={absoluteUrl(provider.loginUrl, publicBaseUrl)} />
+          <CopyLine label="Client ID" value={provider.clientId || "(not set)"} />
+          <CopyLine label="Provider slug" value={provider.slug} />
+        </div>
+        {provider.providerType === "oidc" && (
+          <div className="space-y-3 border-t border-slate-200 pt-3">
+            {provider.issuerUrl && <CopyLine label="Issuer URL" value={provider.issuerUrl} />}
+            <CopyLine label="Scopes" value={provider.scopes || "openid email profile"} />
+            {provider.authorizationUrl && <CopyLine label="Authorization URL" value={provider.authorizationUrl} />}
+            {provider.tokenUrl && <CopyLine label="Token URL" value={provider.tokenUrl} />}
+            {provider.userinfoUrl && <CopyLine label="Userinfo URL" value={provider.userinfoUrl} />}
+            {provider.groupClaim && <CopyLine label="Group claim" value={provider.groupClaim} />}
+          </div>
+        )}
+        {provider.providerType === "github" && provider.allowedOrgs && (
+          <div className="border-t border-slate-200 pt-3">
+            <CopyLine label="Allowed orgs" value={provider.allowedOrgs} />
+          </div>
+        )}
+        <ProviderApplicationUrls provider={provider} callbackUrl={callbackUrl} publicBaseUrl={publicBaseUrl} />
+      </div>
+    </details>
+  );
+}
+
+function ProviderApplicationUrls({ provider, callbackUrl, publicBaseUrl }: { provider: AuthProvider; callbackUrl: string; publicBaseUrl: string }) {
+  const baseUrl = publicBaseUrl.replace(/\/$/, "");
+  if (provider.providerType === "github") {
+    return (
+      <div className="space-y-3 border-t border-slate-200 pt-3">
+        <p className="text-xs font-medium uppercase text-slate-500">GitHub OAuth app</p>
+        <CopyLine label="Authorization callback URL" value={callbackUrl} />
+        <CopyLine label="Homepage URL" value={baseUrl} />
+      </div>
+    );
+  }
+
+  if (provider.providerType !== "oidc") return null;
+
+  return (
+    <div className="space-y-3 border-t border-slate-200 pt-3">
+      <p className="text-xs font-medium uppercase text-slate-500">{providerLooksLikeAuth0(provider) ? "Auth0 application URLs" : "OIDC application URLs"}</p>
+      <CopyLine label={providerLooksLikeAuth0(provider) ? "Allowed Callback URLs" : "Redirect URI"} value={callbackUrl} />
+      <CopyLine label={providerLooksLikeAuth0(provider) ? "Application Login URI" : "Application login URL"} value={`${baseUrl}/login`} />
+      <CopyLine label={providerLooksLikeAuth0(provider) ? "Allowed Logout URLs" : "Post-logout URL"} value={`${baseUrl}/login`} />
+      <CopyLine label="Allowed Web Origins" value={baseUrl} />
+      <CopyLine label="Allowed Origins (CORS)" value={baseUrl} />
+      <p className="text-xs text-slate-500">
+        The redirect or callback URL is required. The other values are safe defaults for providers that enforce application origins.
+      </p>
+    </div>
+  );
+}
+
 function GitHubSetupInstructions({ slug, publicBaseUrl }: { slug: string; publicBaseUrl: string }) {
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
@@ -630,16 +787,32 @@ function GitHubSetupInstructions({ slug, publicBaseUrl }: { slug: string; public
 
 function OidcSetupInstructions({ preset, slug, publicBaseUrl }: { preset: OidcPreset; slug: string; publicBaseUrl: string }) {
   const callbackUrl = callbackUrlFor(slug || preset.id, publicBaseUrl);
+  const baseUrl = publicBaseUrl.replace(/\/$/, "");
   const steps = preset.steps();
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
       <h3 className="text-sm font-semibold text-amber-950">Before saving {preset.label}</h3>
-      <div className="mt-3">
-        <CopyLine label="Callback URL" value={callbackUrl} />
-      </div>
+      {!preset.auth0AppUrls && (
+        <div className="mt-3">
+          <CopyLine label="Callback URL" value={callbackUrl} />
+        </div>
+      )}
       <ol className="mt-3 list-inside list-decimal space-y-1.5 text-sm text-amber-900">
         {steps.map((step, i) => <li key={i}>{step}</li>)}
       </ol>
+      {preset.auth0AppUrls && (
+        <div className="mt-3 space-y-3 rounded-md border border-amber-200 bg-white/60 p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-amber-900">Auth0 application URLs</p>
+          <CopyLine label="Allowed Callback URLs" value={callbackUrl} />
+          <CopyLine label="Application Login URI" value={`${baseUrl}/login`} />
+          <CopyLine label="Allowed Logout URLs" value={`${baseUrl}/login`} />
+          <CopyLine label="Allowed Web Origins" value={baseUrl} />
+          <CopyLine label="Allowed Origins (CORS)" value={baseUrl} />
+          <p className="text-xs text-amber-800">
+            SkillShelf requires the callback URL. The other fields are optional for a server-side OIDC flow, but these values match this deployment if your Auth0 app enforces them.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
