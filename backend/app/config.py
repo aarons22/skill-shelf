@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     data_dir: str = Field("./.skillshelf-data", validation_alias="SKILLSHELF_DATA_DIR")
     node_env: str = "development"
     session_secret: str = Field(DEFAULT_SESSION_SECRET, validation_alias="SKILLSHELF_SESSION_SECRET")
+    log_level: str = Field("INFO", validation_alias="SKILLSHELF_LOG_LEVEL")
+    encryption_key_path: str | None = Field(None, validation_alias="SKILLSHELF_ENCRYPTION_KEY_PATH")
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

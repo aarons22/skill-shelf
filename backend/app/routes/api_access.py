@@ -28,6 +28,7 @@ from app.lib.auth import (
 from app.lib.local_accounts import generate_temp_password, hash_password
 from app.lib.oidc_discovery import fetch_oidc_metadata
 from app.lib.provider_allowlist import derive_github_scopes, parse_allowlist
+from app.lib.secret_box import encrypt as encrypt_secret
 from app.lib.setup_state import is_required
 from app.models import access_tokens, audit_events, auth_providers, local_account_credentials, marketplace_role_grants, marketplaces, organization_role_grants, organization_settings, users
 from app.schemas import (
@@ -769,6 +770,8 @@ def _provider_values(raw: dict, now: int) -> dict:
         values["enabled"] = 1 if values["enabled"] else 0
     if values.get("provider_type") == "trusted_headers":
         values["provider_type"] = "trusted_header"
+    if "client_secret" in values and values["client_secret"]:
+        values["client_secret"] = encrypt_secret(values["client_secret"])
     if "allowlist_json" in values:
         values["allowlist_json"] = json.dumps(values["allowlist_json"] or {})
     provider_type = values.get("provider_type") or raw.get("providerType")

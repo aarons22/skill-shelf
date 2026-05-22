@@ -9,6 +9,7 @@ from app.db import get_transaction
 from app.lib.auth import DEFAULT_ORGANIZATION_ID, ORGANIZATION_ADMIN, ensure_default_organization, now_ts, upsert_user
 from app.lib.local_accounts import hash_password
 from app.lib.provider_allowlist import derive_github_scopes
+from app.lib.secret_box import encrypt as encrypt_secret
 from app.lib.session import COOKIE_NAME, sign_payload
 from app.lib.setup_state import is_required, mark_completed
 from app.models import auth_providers, local_account_credentials, organization_role_grants, organization_settings, organizations, users
@@ -82,7 +83,7 @@ def complete_setup(body: OrganizationSetupIn, request: Request):
             "provider_type": provider_type,
             "enabled": 1,
             "client_id": body.provider.clientId,
-            "client_secret": body.provider.clientSecret,
+            "client_secret": encrypt_secret(body.provider.clientSecret or ""),
             "issuer_url": body.provider.issuerUrl,
             "authorization_url": body.provider.authorizationUrl,
             "token_url": body.provider.tokenUrl,
