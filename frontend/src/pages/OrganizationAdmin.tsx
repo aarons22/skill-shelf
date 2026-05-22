@@ -719,25 +719,27 @@ function OidcSetupInstructions({ preset, slug, publicBaseUrl }: { preset: OidcPr
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
       <h3 className="text-sm font-semibold text-amber-950">Before saving {preset.label}</h3>
-      <div className="mt-3 space-y-3">
-        <CopyLine label="Callback URL" value={callbackUrl} />
-        {preset.auth0AppUrls && (
-          <div className="space-y-3 rounded-md border border-amber-200 bg-white/60 p-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-amber-900">Auth0 application URLs</p>
-            <CopyLine label="Allowed Callback URLs" value={callbackUrl} />
-            <CopyLine label="Application Login URI" value={`${baseUrl}/login`} />
-            <CopyLine label="Allowed Logout URLs" value={`${baseUrl}/login`} />
-            <CopyLine label="Allowed Web Origins" value={baseUrl} />
-            <CopyLine label="Allowed Origins (CORS)" value={baseUrl} />
-            <p className="text-xs text-amber-800">
-              SkillShelf requires the callback URL. The other Auth0 fields are optional for this server-side OIDC flow, but these values match this deployment if your Auth0 app enforces them.
-            </p>
-          </div>
-        )}
-      </div>
+      {!preset.auth0AppUrls && (
+        <div className="mt-3">
+          <CopyLine label="Callback URL" value={callbackUrl} />
+        </div>
+      )}
       <ol className="mt-3 list-inside list-decimal space-y-1.5 text-sm text-amber-900">
         {steps.map((step, i) => <li key={i}>{step}</li>)}
       </ol>
+      {preset.auth0AppUrls && (
+        <div className="mt-3 space-y-3 rounded-md border border-amber-200 bg-white/60 p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-amber-900">Auth0 application URLs</p>
+          <CopyLine label="Allowed Callback URLs" value={callbackUrl} />
+          <CopyLine label="Application Login URI" value={`${baseUrl}/login`} />
+          <CopyLine label="Allowed Logout URLs" value={`${baseUrl}/login`} />
+          <CopyLine label="Allowed Web Origins" value={baseUrl} />
+          <CopyLine label="Allowed Origins (CORS)" value={baseUrl} />
+          <p className="text-xs text-amber-800">
+            SkillShelf requires the callback URL. The other fields are optional for a server-side OIDC flow, but these values match this deployment if your Auth0 app enforces them.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
