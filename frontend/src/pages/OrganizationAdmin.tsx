@@ -436,112 +436,25 @@ export default function OrganizationAdmin() {
             </section>
 
             <div className="rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="mb-4 text-sm font-semibold text-slate-800">{editingProviderSlug ? "Edit login provider" : "Add login provider"}</h2>
-              {providerForm === null ? (
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setProviderForm(emptyFormFor("github"))}
-                    className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50"
-                  >
-                    Configure GitHub
-                  </button>
-                  {OIDC_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => { setSaveError(""); setProviderForm(emptyFormFor("oidc-preset", preset.id)); }}
-                      className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50"
-                    >
-                      Configure {preset.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setProviderForm(emptyFormFor("trusted_header"))}
-                    className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50"
-                  >
-                    Configure trusted proxy headers
-                  </button>
-                </div>
+              <h2 className="mb-4 text-sm font-semibold text-slate-800">Add login provider</h2>
+              {providerForm !== null && !editingProviderSlug ? (
+                <ProviderForm
+                  form={providerForm}
+                  isEditing={false}
+                  saveError={saveError}
+                  publicBaseUrl={me.publicBaseUrl}
+                  onChange={(u) => setProviderForm((f) => f && ({ ...f, ...u }))}
+                  onSubmit={saveProvider}
+                  onCancel={() => { setProviderForm(null); setSaveError(""); }}
+                />
               ) : (
-                <form onSubmit={saveProvider} className="space-y-4">
-                  {providerForm.providerType === "github" && (
-                    <GitHubSetupInstructions slug={providerForm.slug} publicBaseUrl={me.publicBaseUrl} />
-                  )}
-                  {providerForm.providerType === "oidc" && (() => {
-                    const preset = OIDC_PRESETS.find((p) => p.id === providerForm.preset) ?? OIDC_PRESETS[OIDC_PRESETS.length - 1];
-                    return <OidcSetupInstructions preset={preset} slug={providerForm.slug} publicBaseUrl={me.publicBaseUrl} />;
-                  })()}
-                  <Field label="Display name" value={providerForm.displayName} onChange={(v) => setProviderForm((f) => f && ({ ...f, displayName: v }))} />
-                  {providerForm.providerType === "oidc" && (() => {
-                    const preset = OIDC_PRESETS.find((p) => p.id === providerForm.preset) ?? OIDC_PRESETS[OIDC_PRESETS.length - 1];
-                    return preset.domainLabel ? (
-                      <Field label={preset.domainLabel} placeholder={preset.domainPlaceholder} value={providerForm.domainValue} onChange={(v) => setProviderForm((f) => f && ({ ...f, domainValue: v }))} />
-                    ) : null;
-                  })()}
-                  {(providerForm.providerType === "github" || providerForm.providerType === "oidc") && (
-                    <>
-                      <Field label="Client ID" value={providerForm.clientId} onChange={(v) => setProviderForm((f) => f && ({ ...f, clientId: v }))} />
-                      <label className="block">
-                        <span className="mb-1 block text-sm font-medium text-slate-700">Client secret</span>
-                        <input
-                          type="password"
-                          autoComplete="off"
-                          value={providerForm.clientSecret}
-                          placeholder={editingProviderSlug ? "Leave blank to keep existing secret" : undefined}
-                          onChange={(e) => setProviderForm((f) => f && ({ ...f, clientSecret: e.target.value }))}
-                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400"
-                        />
-                      </label>
-                    </>
-                  )}
-                  {providerForm.providerType !== "trusted_header" && (
-                    <AdvancedDisclosure open={providerForm.advancedOpen} onToggle={() => setProviderForm((f) => f && ({ ...f, advancedOpen: !f.advancedOpen }))}>
-                      {editingProviderSlug ? (
-                        <div>
-                          <span className="mb-1 block text-sm font-medium text-slate-700">Slug</span>
-                          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">{providerForm.slug}</p>
-                        </div>
-                      ) : (
-                        <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
-                      )}
-                      {providerForm.providerType === "oidc" && (
-                        <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => f && ({ ...f, scopes: v }))} />
-                      )}
-                      {providerForm.providerType === "oidc" && (
-                        <>
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" checked={providerForm.groupClaimEnabled} onChange={(e) => setProviderForm((f) => f && ({ ...f, groupClaimEnabled: e.target.checked }))} />
-                            <span className="font-medium text-slate-700">Restrict access by group</span>
-                          </label>
-                          {providerForm.groupClaimEnabled && (
-                            <Field label="Group claim" value={providerForm.groupClaim} onChange={(v) => setProviderForm((f) => f && ({ ...f, groupClaim: v }))} />
-                          )}
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" checked={providerForm.endpointOverrideEnabled} onChange={(e) => setProviderForm((f) => f && ({ ...f, endpointOverrideEnabled: e.target.checked }))} />
-                            <span className="font-medium text-slate-700">Override endpoints manually</span>
-                          </label>
-                          {providerForm.endpointOverrideEnabled && (
-                            <>
-                              <Field label="Authorization URL" value={providerForm.authorizationUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, authorizationUrl: v }))} />
-                              <Field label="Token URL" value={providerForm.tokenUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, tokenUrl: v }))} />
-                              <Field label="Userinfo URL" value={providerForm.userinfoUrl} onChange={(v) => setProviderForm((f) => f && ({ ...f, userinfoUrl: v }))} />
-                            </>
-                          )}
-                        </>
-                      )}
-                      {providerForm.providerType === "github" && (
-                        <Field label="Allowed orgs (comma-separated)" value={providerForm.allowedOrgs} onChange={(v) => setProviderForm((f) => f && ({ ...f, allowedOrgs: v }))} />
-                      )}
-                    </AdvancedDisclosure>
-                  )}
-                  {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-                  <div className="flex gap-3 pt-1">
-                    <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">{editingProviderSlug ? "Update provider" : "Save provider"}</button>
-                    <button type="button" onClick={() => { setProviderForm(null); setEditingProviderSlug(null); setSaveError(""); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
-                  </div>
-                </form>
+                <div className="space-y-2">
+                  <button type="button" onClick={() => { setSaveError(""); setProviderForm(emptyFormFor("github")); }} className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50">Configure GitHub</button>
+                  {OIDC_PRESETS.map((preset) => (
+                    <button key={preset.id} type="button" onClick={() => { setSaveError(""); setProviderForm(emptyFormFor("oidc-preset", preset.id)); }} className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50">Configure {preset.label}</button>
+                  ))}
+                  <button type="button" onClick={() => { setSaveError(""); setProviderForm(emptyFormFor("trusted_header")); }} className="w-full rounded-md border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50">Configure trusted proxy headers</button>
+                </div>
               )}
             </div>
           </div>
@@ -655,6 +568,20 @@ export default function OrganizationAdmin() {
         )}
 
       </main>
+
+      {editingProviderSlug && providerForm && (
+        <Modal title={`Edit ${providerForm.displayName}`} onClose={() => { setProviderForm(null); setEditingProviderSlug(null); setSaveError(""); }}>
+          <ProviderForm
+            form={providerForm}
+            isEditing={true}
+            saveError={saveError}
+            publicBaseUrl={me.publicBaseUrl}
+            onChange={(u) => setProviderForm((f) => f && ({ ...f, ...u }))}
+            onSubmit={saveProvider}
+            onCancel={() => { setProviderForm(null); setEditingProviderSlug(null); setSaveError(""); }}
+          />
+        </Modal>
+      )}
     </div>
   );
 }
@@ -836,5 +763,130 @@ function Field({ label, placeholder, value, onChange }: { label: string; placeho
       <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
       <input id={id} value={value ?? ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400" />
     </label>
+  );
+}
+
+function ProviderForm({ form, isEditing, saveError, publicBaseUrl, onChange, onSubmit, onCancel }: {
+  form: ProviderFormState;
+  isEditing: boolean;
+  saveError: string;
+  publicBaseUrl: string;
+  onChange: (updates: Partial<ProviderFormState>) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onCancel: () => void;
+}) {
+  const oidcPreset = form.providerType === "oidc"
+    ? OIDC_PRESETS.find((p) => p.id === form.preset) ?? OIDC_PRESETS[OIDC_PRESETS.length - 1]
+    : null;
+  const callbackSlug = form.slug || (oidcPreset?.id ?? "oidc");
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      {form.providerType === "github" && (
+        <GitHubSetupInstructions slug={callbackSlug} publicBaseUrl={publicBaseUrl} />
+      )}
+      {oidcPreset && (
+        <OidcSetupInstructions preset={oidcPreset} slug={callbackSlug} publicBaseUrl={publicBaseUrl} />
+      )}
+
+      <Field label="Display name" value={form.displayName} onChange={(v) => onChange({ displayName: v })} />
+
+      {oidcPreset?.domainLabel && (
+        <Field
+          label={oidcPreset.domainLabel}
+          placeholder={oidcPreset.domainPlaceholder}
+          value={form.domainValue}
+          onChange={(v) => onChange({ domainValue: v })}
+        />
+      )}
+
+      {form.providerType !== "trusted_header" && (
+        <>
+          <Field label="Client ID" value={form.clientId} onChange={(v) => onChange({ clientId: v })} />
+          <Field
+            label={isEditing ? "Client Secret (leave blank to keep existing)" : "Client Secret"}
+            value={form.clientSecret}
+            onChange={(v) => onChange({ clientSecret: v })}
+          />
+        </>
+      )}
+
+      {form.providerType === "github" && (
+        <AdvancedDisclosure open={form.advancedOpen} onToggle={() => onChange({ advancedOpen: !form.advancedOpen })}>
+          <Field label="Slug" value={form.slug} onChange={(v) => onChange({ slug: v })} />
+          <Field
+            label="Allowed orgs (comma-separated)"
+            placeholder="Leave blank to allow any GitHub user"
+            value={form.allowedOrgs}
+            onChange={(v) => onChange({ allowedOrgs: v })}
+          />
+        </AdvancedDisclosure>
+      )}
+
+      {form.providerType === "oidc" && (
+        <AdvancedDisclosure open={form.advancedOpen} onToggle={() => onChange({ advancedOpen: !form.advancedOpen })}>
+          <Field label="Slug" value={form.slug} onChange={(v) => onChange({ slug: v })} />
+          <Field label="Scopes" value={form.scopes} onChange={(v) => onChange({ scopes: v })} />
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={form.groupClaimEnabled} onChange={(e) => onChange({ groupClaimEnabled: e.target.checked })} className="rounded border-slate-300" />
+            Restrict by group claim
+          </label>
+          {form.groupClaimEnabled && (
+            <Field label="Group claim" value={form.groupClaim} onChange={(v) => onChange({ groupClaim: v })} />
+          )}
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={form.endpointOverrideEnabled} onChange={(e) => onChange({ endpointOverrideEnabled: e.target.checked })} className="rounded border-slate-300" />
+            Override discovery endpoints
+          </label>
+          {form.endpointOverrideEnabled && (
+            <>
+              <Field label="Authorization URL" value={form.authorizationUrl} onChange={(v) => onChange({ authorizationUrl: v })} />
+              <Field label="Token URL" value={form.tokenUrl} onChange={(v) => onChange({ tokenUrl: v })} />
+              <Field label="Userinfo URL" value={form.userinfoUrl} onChange={(v) => onChange({ userinfoUrl: v })} />
+            </>
+          )}
+        </AdvancedDisclosure>
+      )}
+
+      {form.providerType === "trusted_header" && (
+        <AdvancedDisclosure open={form.advancedOpen} onToggle={() => onChange({ advancedOpen: !form.advancedOpen })}>
+          <Field label="Slug" value={form.slug} onChange={(v) => onChange({ slug: v })} />
+        </AdvancedDisclosure>
+      )}
+
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+
+      <div className="flex gap-3">
+        <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+          {isEditing ? "Save changes" : "Save provider"}
+        </button>
+        <button type="button" onClick={onCancel} className="text-sm text-slate-500 hover:text-slate-900">Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/40"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="flex min-h-full items-start justify-center p-4 pt-16">
+        <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+            <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600">✕</button>
+          </div>
+          <div className="overflow-y-auto p-6">{children}</div>
+        </div>
+      </div>
+    </div>
   );
 }
