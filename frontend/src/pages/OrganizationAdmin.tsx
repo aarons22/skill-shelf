@@ -183,6 +183,7 @@ export default function OrganizationAdmin() {
   const [tempPassword, setTempPassword] = useState("");
   const [message, setMessage] = useState("");
   const [providerForm, setProviderForm] = useState<ProviderFormState | null>(null);
+  const [editingProviderSlug, setEditingProviderSlug] = useState<string | null>(null);
   const [saveError, setSaveError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -255,7 +256,7 @@ export default function OrganizationAdmin() {
     }
 
     const { preset: _preset, domainValue: _dv, advancedOpen: _ao, groupClaimEnabled, endpointOverrideEnabled, ...rest } = providerForm;
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...rest,
       issuerUrl,
       groupClaim: groupClaimEnabled ? rest.groupClaim : "",
@@ -264,18 +265,57 @@ export default function OrganizationAdmin() {
       userinfoUrl: endpointOverrideEnabled ? rest.userinfoUrl : "",
     };
 
-    const r = await fetch("/api/organization/auth-providers", {
-      method: "POST",
+    // When editing, omit clientSecret from the payload if the user left it blank — the backend
+    // preserves the stored value when the field is absent from a PUT body.
+    if (editingProviderSlug && !rest.clientSecret) {
+      delete payload.clientSecret;
+    }
+
+    const url = editingProviderSlug
+      ? `/api/organization/auth-providers/${editingProviderSlug}`
+      : "/api/organization/auth-providers";
+    const r = await fetch(url, {
+      method: editingProviderSlug ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     if (r.ok) {
       setProviderForm(null);
+      setEditingProviderSlug(null);
       load();
     } else {
       const data = await r.json().catch(() => ({}));
       setSaveError(data.detail || "Could not save provider.");
     }
+  };
+
+  const editProvider = (provider: AuthProvider) => {
+    setSaveError("");
+    const presetId = detectPreset(provider);
+    const preset = OIDC_PRESETS.find((p) => p.id === presetId);
+    const domainValue = preset ? reverseDomain(presetId, provider.issuerUrl ?? "") : (provider.issuerUrl ?? "");
+    const hasEndpointOverrides = !!(provider.authorizationUrl || provider.tokenUrl || provider.userinfoUrl);
+    setProviderForm({
+      preset: presetId,
+      domainValue,
+      slug: provider.slug,
+      displayName: provider.displayName,
+      providerType: provider.providerType as "github" | "oidc" | "trusted_header",
+      enabled: provider.enabled,
+      clientId: provider.clientId,
+      clientSecret: "",
+      issuerUrl: provider.issuerUrl ?? "",
+      authorizationUrl: provider.authorizationUrl ?? "",
+      tokenUrl: provider.tokenUrl ?? "",
+      userinfoUrl: provider.userinfoUrl ?? "",
+      scopes: provider.scopes,
+      groupClaim: provider.groupClaim ?? "",
+      allowedOrgs: provider.allowedOrgs ?? "",
+      advancedOpen: false,
+      groupClaimEnabled: !!provider.groupClaim,
+      endpointOverrideEnabled: hasEndpointOverrides,
+    });
+    setEditingProviderSlug(provider.slug);
   };
 
   const updateProvider = async (provider: AuthProvider, updates: Partial<AuthProvider>) => {
@@ -383,6 +423,9 @@ export default function OrganizationAdmin() {
                             {provider.enabled ? "Disable" : "Enable"}
                           </button>
                           {provider.providerType !== "local" && <a href={provider.loginUrl} className="text-sm text-slate-700 hover:underline">Test login</a>}
+                          {provider.providerType !== "local" && (
+                            <button type="button" onClick={() => editProvider(provider)} className="text-sm text-slate-700 hover:underline">Edit</button>
+                          )}
                           <button type="button" onClick={() => deleteProvider(provider)} className="text-sm text-red-600 hover:text-red-800">Delete</button>
                         </div>
                       </div>
@@ -393,7 +436,7 @@ export default function OrganizationAdmin() {
             </section>
 
             <div className="rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="mb-4 text-sm font-semibold text-slate-800">Add login provider</h2>
+              <h2 className="mb-4 text-sm font-semibold text-slate-800">{editingProviderSlug ? "Edit login provider" : "Add login provider"}</h2>
               {providerForm === null ? (
                 <div className="space-y-2">
                   <button
@@ -446,15 +489,23 @@ export default function OrganizationAdmin() {
                           type="password"
                           autoComplete="off"
                           value={providerForm.clientSecret}
+                          placeholder={editingProviderSlug ? "Leave blank to keep existing secret" : undefined}
                           onChange={(e) => setProviderForm((f) => f && ({ ...f, clientSecret: e.target.value }))}
-                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400"
                         />
                       </label>
                     </>
                   )}
                   {providerForm.providerType !== "trusted_header" && (
                     <AdvancedDisclosure open={providerForm.advancedOpen} onToggle={() => setProviderForm((f) => f && ({ ...f, advancedOpen: !f.advancedOpen }))}>
-                      <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
+                      {editingProviderSlug ? (
+                        <div>
+                          <span className="mb-1 block text-sm font-medium text-slate-700">Slug</span>
+                          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">{providerForm.slug}</p>
+                        </div>
+                      ) : (
+                        <Field label="Slug" value={providerForm.slug} onChange={(v) => setProviderForm((f) => f && ({ ...f, slug: v }))} />
+                      )}
                       {providerForm.providerType === "oidc" && (
                         <Field label="Scopes" value={providerForm.scopes} onChange={(v) => setProviderForm((f) => f && ({ ...f, scopes: v }))} />
                       )}
@@ -487,8 +538,8 @@ export default function OrganizationAdmin() {
                   )}
                   {saveError && <p className="text-sm text-red-600">{saveError}</p>}
                   <div className="flex gap-3 pt-1">
-                    <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Save provider</button>
-                    <button type="button" onClick={() => { setProviderForm(null); setSaveError(""); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+                    <button type="submit" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">{editingProviderSlug ? "Update provider" : "Save provider"}</button>
+                    <button type="button" onClick={() => { setProviderForm(null); setEditingProviderSlug(null); setSaveError(""); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
                   </div>
                 </form>
               )}
@@ -611,6 +662,28 @@ export default function OrganizationAdmin() {
 function callbackUrlFor(slug: string, publicBaseUrl = window.location.origin) {
   const cleanSlug = slug.trim() || "github";
   return `${publicBaseUrl.replace(/\/$/, "")}/auth/callback/${cleanSlug}`;
+}
+
+function detectPreset(provider: AuthProvider): string {
+  if (provider.providerType === "github") return "github";
+  if (provider.providerType === "trusted_header" || provider.providerType === "trusted_headers") return "trusted_header";
+  if (OIDC_PRESETS.some((p) => p.id === provider.slug)) return provider.slug;
+  const issuer = provider.issuerUrl ?? "";
+  if (issuer.includes(".auth0.com")) return "auth0";
+  if (issuer.includes(".okta.com") || issuer.includes("/oauth2/")) return "okta";
+  if (issuer.includes("microsoftonline.com")) return "entra";
+  if (issuer.includes("accounts.google.com")) return "google";
+  return "oidc";
+}
+
+function reverseDomain(presetId: string, issuerUrl: string): string {
+  if (presetId === "auth0") return issuerUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (presetId === "okta") return issuerUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (presetId === "entra") {
+    const m = issuerUrl.match(/microsoftonline\.com\/([^/]+)/);
+    return m ? m[1] : issuerUrl;
+  }
+  return issuerUrl;
 }
 
 function absoluteUrl(path: string, publicBaseUrl: string) {
