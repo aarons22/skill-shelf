@@ -17,6 +17,7 @@ from app.lib.auth import (
     visible_marketplace_condition,
 )
 from app.lib import git_store, write_path
+from app.lib.locks import marketplace_write_lock
 from app.lib.slug import make_slug
 from app.models import marketplace_role_grants, marketplaces, plugins, skills, users
 from app.schemas import MarketplaceCreate, MarketplaceOut, MarketplaceUpdate
@@ -118,33 +119,34 @@ def create_marketplace(body: MarketplaceCreate, request: Request, actor: Actor |
     if actor is None:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Create git repo before transaction (easier to clean up on failure)
-    git_store.create_repo(slug)
+    with marketplace_write_lock(slug):
+        # Create git repo before transaction (easier to clean up on failure)
+        git_store.create_repo(slug)
 
-    try:
-        with get_transaction() as conn:
-            conn.execute(insert(marketplaces).values(
-                organization_id=DEFAULT_ORGANIZATION_ID,
-                slug=slug,
-                display_name=body.displayName,
-                created_by_user_id=actor.user_id,
-                visibility="workspace",
-                created_at=now,
-                updated_at=now,
-            ))
-            if actor.user_id is not None:
-                conn.execute(insert(marketplace_role_grants).values(
+        try:
+            with get_transaction() as conn:
+                conn.execute(insert(marketplaces).values(
                     organization_id=DEFAULT_ORGANIZATION_ID,
-                    marketplace_slug=slug,
-                    principal_type="user",
-                    principal_id=actor.user_id,
-                    role=MARKETPLACE_ADMIN,
+                    slug=slug,
+                    display_name=body.displayName,
+                    created_by_user_id=actor.user_id,
+                    visibility="workspace",
                     created_at=now,
+                    updated_at=now,
                 ))
-            write_path.sync_and_commit(slug, conn, commit_message="Initialize marketplace")
-    except Exception:
-        git_store.delete_repo(slug)
-        raise
+                if actor.user_id is not None:
+                    conn.execute(insert(marketplace_role_grants).values(
+                        organization_id=DEFAULT_ORGANIZATION_ID,
+                        marketplace_slug=slug,
+                        principal_type="user",
+                        principal_id=actor.user_id,
+                        role=MARKETPLACE_ADMIN,
+                        created_at=now,
+                    ))
+                write_path.sync_and_commit(slug, conn, commit_message="Initialize marketplace")
+        except Exception:
+            git_store.delete_repo(slug)
+            raise
 
     with get_connection() as conn:
         row = conn.execute(_marketplace_with_owner(conn, marketplaces.c.slug == slug)).mappings().one()
@@ -186,13 +188,14 @@ def update_marketplace(slug: str, body: MarketplaceUpdate, request: Request, act
     now = int(time.time())
     updates["updated_at"] = now
 
-    try:
-        with get_transaction() as conn:
-            conn.execute(update(marketplaces).where(marketplaces.c.slug == slug).values(**updates))
-            write_path.sync_and_commit(slug, conn, commit_message="Update marketplace metadata")
-    except Exception:
-        git_store.reset_working_tree(slug)
-        raise
+    with marketplace_write_lock(slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(update(marketplaces).where(marketplaces.c.slug == slug).values(**updates))
+                write_path.sync_and_commit(slug, conn, commit_message="Update marketplace metadata")
+        except Exception:
+            git_store.reset_working_tree(slug)
+            raise
 
     with get_connection() as conn:
         updated_row = conn.execute(_marketplace_with_owner(conn, marketplaces.c.slug == slug)).mappings().one()
@@ -218,10 +221,11 @@ def delete_marketplace(slug: str, request: Request, actor: Actor | None = Depend
     with get_connection() as conn:
         require_marketplace_admin(conn, actor, slug)
 
-    with get_transaction() as conn:
-        actor = require_marketplace_admin(conn, actor, slug)
-        conn.execute(delete(marketplaces).where(marketplaces.c.slug == slug))
-        record_audit(conn, actor, "marketplace.delete", "marketplace", slug)
+    with marketplace_write_lock(slug):
+        with get_transaction() as conn:
+            actor = require_marketplace_admin(conn, actor, slug)
+            conn.execute(delete(marketplaces).where(marketplaces.c.slug == slug))
+            record_audit(conn, actor, "marketplace.delete", "marketplace", slug)
 
-    # delete_repo also evicts the WSGI cache for this slug
-    git_store.delete_repo(slug)
+        # delete_repo also evicts the WSGI cache for this slug
+        git_store.delete_repo(slug)

@@ -8,6 +8,7 @@ from sqlalchemy import delete, func, insert, select, update
 from app.db import get_connection, get_transaction
 from app.lib.auth import public_read_dependencies, record_audit, require_marketplace_maintain, require_marketplace_read, require_marketplace_write
 from app.lib import git_store, write_path
+from app.lib.locks import marketplace_write_lock
 from app.lib.slug import make_slug
 from app.models import (
     marketplaces,
@@ -196,21 +197,22 @@ def create_plugin(marketplace_slug: str, body: PluginCreate, request: Request):
     if existing is not None:
         raise HTTPException(status_code=409, detail=f"Plugin slug '{plugin_slug}' already exists")
 
-    try:
-        with get_transaction() as conn:
-            conn.execute(insert(plugins).values(
-                marketplace_slug=marketplace_slug,
-                slug=plugin_slug,
-                display_name=body.displayName,
-                description=body.description,
-                version="1.0.0",
-                created_at=now,
-                updated_at=now,
-            ))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, f"Add plugin: {plugin_slug}")
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(insert(plugins).values(
+                    marketplace_slug=marketplace_slug,
+                    slug=plugin_slug,
+                    display_name=body.displayName,
+                    description=body.description,
+                    version="1.0.0",
+                    created_at=now,
+                    updated_at=now,
+                ))
+                _sync_plugin(conn, marketplace_slug, plugin_slug, f"Add plugin: {plugin_slug}")
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
 
     with get_connection() as conn:
         row = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
@@ -242,18 +244,19 @@ def update_plugin(marketplace_slug: str, plugin_slug: str, body: PluginUpdate, r
             return _plugin_out(current, conn)
     updates["updated_at"] = int(time.time())
     updates["version"] = _bump_version(current["version"])
-    try:
-        with get_transaction() as conn:
-            conn.execute(
-                update(plugins).where(
-                    plugins.c.marketplace_slug == marketplace_slug,
-                    plugins.c.slug == plugin_slug,
-                ).values(**updates)
-            )
-            _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update plugin: {plugin_slug}")
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(
+                    update(plugins).where(
+                        plugins.c.marketplace_slug == marketplace_slug,
+                        plugins.c.slug == plugin_slug,
+                    ).values(**updates)
+                )
+                _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update plugin: {plugin_slug}")
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
     with get_connection() as conn:
         return _plugin_out(_get_plugin_or_404(conn, marketplace_slug, plugin_slug), conn)
 
@@ -265,24 +268,25 @@ def delete_plugin(marketplace_slug: str, plugin_slug: str, request: Request):
         _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
         require_marketplace_maintain(conn, _actor(request), marketplace_slug)
         removal = write_path.remove_plugin_files(plugin_slug, conn, marketplace_slug)
-    try:
-        with get_transaction() as conn:
-            conn.execute(
-                delete(plugins).where(
-                    plugins.c.marketplace_slug == marketplace_slug,
-                    plugins.c.slug == plugin_slug,
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(
+                    delete(plugins).where(
+                        plugins.c.marketplace_slug == marketplace_slug,
+                        plugins.c.slug == plugin_slug,
+                    )
                 )
-            )
-            write_path.sync_and_commit(
-                marketplace_slug,
-                conn,
-                commit_message=f"Delete plugin: {plugin_slug}",
-                extra_files=removal,
-            )
-            record_audit(conn, _actor(request), "plugin.delete", "plugin", f"{marketplace_slug}/{plugin_slug}")
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+                write_path.sync_and_commit(
+                    marketplace_slug,
+                    conn,
+                    commit_message=f"Delete plugin: {plugin_slug}",
+                    extra_files=removal,
+                )
+                record_audit(conn, _actor(request), "plugin.delete", "plugin", f"{marketplace_slug}/{plugin_slug}")
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
 
 
 @router.get("/{plugin_slug}/skills", response_model=list[SkillOut])
@@ -316,37 +320,38 @@ def create_plugin_skill(marketplace_slug: str, plugin_slug: str, body: SkillCrea
         ).one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail=f"Skill slug '{skill_slug}' already exists")
-    try:
-        with get_transaction() as conn:
-            conn.execute(insert(skills).values(
-                marketplace_slug=marketplace_slug,
-                plugin_slug=plugin_slug,
-                slug=skill_slug,
-                display_name=body.displayName,
-                description=body.description,
-                version="1.0.0",
-                content=body.content,
-                created_at=now,
-                updated_at=now,
-            ))
-            new_version = _bump_version(plugin["version"])
-            conn.execute(
-                update(plugins).where(
-                    plugins.c.marketplace_slug == marketplace_slug,
-                    plugins.c.slug == plugin_slug,
-                ).values(version=new_version, updated_at=now)
-            )
-            sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Add skill: {skill_slug}")
-            conn.execute(
-                update(skills).where(
-                    skills.c.marketplace_slug == marketplace_slug,
-                    skills.c.plugin_slug == plugin_slug,
-                    skills.c.slug == skill_slug,
-                ).values(last_commit=sha)
-            )
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(insert(skills).values(
+                    marketplace_slug=marketplace_slug,
+                    plugin_slug=plugin_slug,
+                    slug=skill_slug,
+                    display_name=body.displayName,
+                    description=body.description,
+                    version="1.0.0",
+                    content=body.content,
+                    created_at=now,
+                    updated_at=now,
+                ))
+                new_version = _bump_version(plugin["version"])
+                conn.execute(
+                    update(plugins).where(
+                        plugins.c.marketplace_slug == marketplace_slug,
+                        plugins.c.slug == plugin_slug,
+                    ).values(version=new_version, updated_at=now)
+                )
+                sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Add skill: {skill_slug}")
+                conn.execute(
+                    update(skills).where(
+                        skills.c.marketplace_slug == marketplace_slug,
+                        skills.c.plugin_slug == plugin_slug,
+                        skills.c.slug == skill_slug,
+                    ).values(last_commit=sha)
+                )
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
     with get_connection() as conn:
         row = conn.execute(
             select(skills).where(
@@ -402,32 +407,33 @@ def update_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str
     now = int(time.time())
     updates["updated_at"] = now
     updates["version"] = _bump_version(skill["version"])
-    try:
-        with get_transaction() as conn:
-            conn.execute(
-                update(skills).where(
-                    skills.c.marketplace_slug == marketplace_slug,
-                    skills.c.plugin_slug == plugin_slug,
-                    skills.c.slug == skill_slug,
-                ).values(**updates)
-            )
-            conn.execute(
-                update(plugins).where(
-                    plugins.c.marketplace_slug == marketplace_slug,
-                    plugins.c.slug == plugin_slug,
-                ).values(version=_bump_version(plugin["version"]), updated_at=now)
-            )
-            sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update skill: {skill_slug}")
-            conn.execute(
-                update(skills).where(
-                    skills.c.marketplace_slug == marketplace_slug,
-                    skills.c.plugin_slug == plugin_slug,
-                    skills.c.slug == skill_slug,
-                ).values(last_commit=sha)
-            )
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(
+                    update(skills).where(
+                        skills.c.marketplace_slug == marketplace_slug,
+                        skills.c.plugin_slug == plugin_slug,
+                        skills.c.slug == skill_slug,
+                    ).values(**updates)
+                )
+                conn.execute(
+                    update(plugins).where(
+                        plugins.c.marketplace_slug == marketplace_slug,
+                        plugins.c.slug == plugin_slug,
+                    ).values(version=_bump_version(plugin["version"]), updated_at=now)
+                )
+                sha = _sync_plugin(conn, marketplace_slug, plugin_slug, f"Update skill: {skill_slug}")
+                conn.execute(
+                    update(skills).where(
+                        skills.c.marketplace_slug == marketplace_slug,
+                        skills.c.plugin_slug == plugin_slug,
+                        skills.c.slug == skill_slug,
+                    ).values(last_commit=sha)
+                )
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
     with get_connection() as conn:
         row = conn.execute(
             select(skills).where(
@@ -455,27 +461,28 @@ def delete_plugin_skill(marketplace_slug: str, plugin_slug: str, skill_slug: str
     if existing is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     now = int(time.time())
-    try:
-        with get_transaction() as conn:
-            conn.execute(delete(skills).where(
-                skills.c.marketplace_slug == marketplace_slug,
-                skills.c.plugin_slug == plugin_slug,
-                skills.c.slug == skill_slug,
-            ))
-            conn.execute(update(plugins).where(
-                plugins.c.marketplace_slug == marketplace_slug,
-                plugins.c.slug == plugin_slug,
-            ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(
-                conn,
-                marketplace_slug,
-                plugin_slug,
-                f"Delete skill: {skill_slug}",
-                extra_files={f"plugins/{plugin_slug}/skills/{skill_slug}/SKILL.md": None},
-            )
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(delete(skills).where(
+                    skills.c.marketplace_slug == marketplace_slug,
+                    skills.c.plugin_slug == plugin_slug,
+                    skills.c.slug == skill_slug,
+                ))
+                conn.execute(update(plugins).where(
+                    plugins.c.marketplace_slug == marketplace_slug,
+                    plugins.c.slug == plugin_slug,
+                ).values(version=_bump_version(plugin["version"]), updated_at=now))
+                _sync_plugin(
+                    conn,
+                    marketplace_slug,
+                    plugin_slug,
+                    f"Delete skill: {skill_slug}",
+                    extra_files={f"plugins/{plugin_slug}/skills/{skill_slug}/SKILL.md": None},
+                )
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
 
 
 @router.get("/{plugin_slug}/hooks", response_model=list[HookOut])
@@ -727,32 +734,33 @@ def put_settings(marketplace_slug: str, plugin_slug: str, body: PluginSettingsIn
         mkt = _get_marketplace_or_404(conn, marketplace_slug)
         plugin = _get_plugin_or_404(conn, marketplace_slug, plugin_slug)
         require_marketplace_write(conn, _actor(request), marketplace_slug, plugin_slug)
-    try:
-        with get_transaction() as conn:
-            existing = conn.execute(select(plugin_settings).where(
-                plugin_settings.c.marketplace_slug == marketplace_slug,
-                plugin_settings.c.plugin_slug == plugin_slug,
-            )).one_or_none()
-            values = {"settings_json": json.dumps(body.settings), "updated_at": now}
-            if existing:
-                conn.execute(update(plugin_settings).where(
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                existing = conn.execute(select(plugin_settings).where(
                     plugin_settings.c.marketplace_slug == marketplace_slug,
                     plugin_settings.c.plugin_slug == plugin_slug,
-                ).values(**values))
-            else:
-                conn.execute(insert(plugin_settings).values(
-                    marketplace_slug=marketplace_slug,
-                    plugin_slug=plugin_slug,
-                    **values,
-                ))
-            conn.execute(update(plugins).where(
-                plugins.c.marketplace_slug == marketplace_slug,
-                plugins.c.slug == plugin_slug,
-            ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, "Update plugin settings")
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+                )).one_or_none()
+                values = {"settings_json": json.dumps(body.settings), "updated_at": now}
+                if existing:
+                    conn.execute(update(plugin_settings).where(
+                        plugin_settings.c.marketplace_slug == marketplace_slug,
+                        plugin_settings.c.plugin_slug == plugin_slug,
+                    ).values(**values))
+                else:
+                    conn.execute(insert(plugin_settings).values(
+                        marketplace_slug=marketplace_slug,
+                        plugin_slug=plugin_slug,
+                        **values,
+                    ))
+                conn.execute(update(plugins).where(
+                    plugins.c.marketplace_slug == marketplace_slug,
+                    plugins.c.slug == plugin_slug,
+                ).values(version=_bump_version(plugin["version"]), updated_at=now))
+                _sync_plugin(conn, marketplace_slug, plugin_slug, "Update plugin settings")
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
     return get_settings(marketplace_slug, plugin_slug, request)
 
 
@@ -780,17 +788,18 @@ def _insert_component(marketplace_slug: str, plugin_slug: str, slug: str, table,
     if existing:
         raise HTTPException(status_code=409, detail=f"Component slug '{slug}' already exists")
     now = int(time.time())
-    try:
-        with get_transaction() as conn:
-            conn.execute(insert(table).values(marketplace_slug=marketplace_slug, plugin_slug=plugin_slug, **values))
-            conn.execute(update(plugins).where(
-                plugins.c.marketplace_slug == marketplace_slug,
-                plugins.c.slug == plugin_slug,
-            ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, message)
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(insert(table).values(marketplace_slug=marketplace_slug, plugin_slug=plugin_slug, **values))
+                conn.execute(update(plugins).where(
+                    plugins.c.marketplace_slug == marketplace_slug,
+                    plugins.c.slug == plugin_slug,
+                ).values(version=_bump_version(plugin["version"]), updated_at=now))
+                _sync_plugin(conn, marketplace_slug, plugin_slug, message)
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
     with get_connection() as conn:
         row = conn.execute(select(table).where(
             table.c.marketplace_slug == marketplace_slug,
@@ -821,21 +830,22 @@ def _delete_component(
     if existing is None:
         raise HTTPException(status_code=404, detail="Component not found")
     now = int(time.time())
-    try:
-        with get_transaction() as conn:
-            conn.execute(delete(table).where(
-                table.c.marketplace_slug == marketplace_slug,
-                table.c.plugin_slug == plugin_slug,
-                table.c.slug == component_slug,
-            ))
-            conn.execute(update(plugins).where(
-                plugins.c.marketplace_slug == marketplace_slug,
-                plugins.c.slug == plugin_slug,
-            ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, message, extra_files=extra_files)
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(delete(table).where(
+                    table.c.marketplace_slug == marketplace_slug,
+                    table.c.plugin_slug == plugin_slug,
+                    table.c.slug == component_slug,
+                ))
+                conn.execute(update(plugins).where(
+                    plugins.c.marketplace_slug == marketplace_slug,
+                    plugins.c.slug == plugin_slug,
+                ).values(version=_bump_version(plugin["version"]), updated_at=now))
+                _sync_plugin(conn, marketplace_slug, plugin_slug, message, extra_files=extra_files)
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
 
 
 def _update_component(marketplace_slug: str, plugin_slug: str, component_slug: str, table, updates: dict[str, Any], message: str, out_fn, request: Request):
@@ -854,21 +864,22 @@ def _update_component(marketplace_slug: str, plugin_slug: str, component_slug: s
         return out_fn(current)
     now = int(time.time())
     updates["updated_at"] = now
-    try:
-        with get_transaction() as conn:
-            conn.execute(update(table).where(
-                table.c.marketplace_slug == marketplace_slug,
-                table.c.plugin_slug == plugin_slug,
-                table.c.slug == component_slug,
-            ).values(**updates))
-            conn.execute(update(plugins).where(
-                plugins.c.marketplace_slug == marketplace_slug,
-                plugins.c.slug == plugin_slug,
-            ).values(version=_bump_version(plugin["version"]), updated_at=now))
-            _sync_plugin(conn, marketplace_slug, plugin_slug, message)
-    except Exception:
-        git_store.reset_working_tree(marketplace_slug)
-        raise
+    with marketplace_write_lock(marketplace_slug):
+        try:
+            with get_transaction() as conn:
+                conn.execute(update(table).where(
+                    table.c.marketplace_slug == marketplace_slug,
+                    table.c.plugin_slug == plugin_slug,
+                    table.c.slug == component_slug,
+                ).values(**updates))
+                conn.execute(update(plugins).where(
+                    plugins.c.marketplace_slug == marketplace_slug,
+                    plugins.c.slug == plugin_slug,
+                ).values(version=_bump_version(plugin["version"]), updated_at=now))
+                _sync_plugin(conn, marketplace_slug, plugin_slug, message)
+        except Exception:
+            git_store.reset_working_tree(marketplace_slug)
+            raise
     with get_connection() as conn:
         row = conn.execute(select(table).where(
             table.c.marketplace_slug == marketplace_slug,
