@@ -3,9 +3,9 @@ services:
     build: ./backend
     env_file: .env
     environment:
-      SKILLSHELF_DATA_DIR: /var/lib/skillshelf
+      SKILLSHELF_DATA_DIR: ${SKILLSHELF_DATA_DIR:-/var/lib/skillshelf}
     volumes:
-      - skillshelf-data:/var/lib/skillshelf
+      - skillshelf-data:${SKILLSHELF_DATA_DIR:-/var/lib/skillshelf}
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
