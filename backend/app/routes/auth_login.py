@@ -8,10 +8,11 @@ from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.db import get_connection, get_transaction
-from app.lib.auth import DEFAULT_ORGANIZATION_ID, sync_header_groups, upsert_user
+from app.lib.auth import DEFAULT_ORGANIZATION_ID, now_ts, record_audit, sync_header_groups, upsert_user
 from app.lib.local_accounts import hash_password, verify_password
 from app.lib.oidc_discovery import fetch_oidc_metadata
 from app.lib.provider_allowlist import enforce
+from app.lib.secret_box import decrypt as decrypt_secret
 from app.lib.session import COOKIE_NAME, STATE_COOKIE_NAME, read_payload, sign_payload
 from app.models import auth_providers, local_account_credentials, users
 from app.schemas import ChangePasswordIn, LoginLocalIn, PublicAuthProviderOut
@@ -57,23 +58,40 @@ def public_auth_providers():
 
 @router.post("/auth/login/local")
 def login_local(body: LoginLocalIn, request: Request):
+    email = body.email.lower()
+    user = None
+    credential = None
+    failure_reason: str | None = None
+
     with get_connection() as conn:
         user = conn.execute(
             select(users).where(
                 users.c.organization_id == DEFAULT_ORGANIZATION_ID,
                 users.c.provider == "local",
-                users.c.provider_subject == body.email.lower(),
+                users.c.provider_subject == email,
             )
         ).mappings().one_or_none()
         if user is None:
-            raise HTTPException(status_code=401, detail="Sign-in failed")
-        if user["disabled_at"] is not None:
-            raise HTTPException(status_code=403, detail="User is disabled")
-        credential = conn.execute(
-            select(local_account_credentials).where(local_account_credentials.c.user_id == user["id"])
-        ).mappings().one_or_none()
-        if credential is None or not verify_password(body.password, credential["password_hash"]):
-            raise HTTPException(status_code=401, detail="Sign-in failed")
+            failure_reason = "user_not_found"
+        elif user["disabled_at"] is not None:
+            failure_reason = "account_disabled"
+        else:
+            credential = conn.execute(
+                select(local_account_credentials).where(local_account_credentials.c.user_id == user["id"])
+            ).mappings().one_or_none()
+            if credential is None or not verify_password(body.password, credential["password_hash"]):
+                failure_reason = "invalid_credentials"
+
+    with get_transaction() as conn:
+        actor = None if (user is None or failure_reason) else type("_A", (), {"user_id": user["id"]})()
+        action = "auth.login.failed" if failure_reason else "auth.login.success"
+        record_audit(conn, actor, action, "user", email, {"provider": "local", "reason": failure_reason})
+
+    if failure_reason == "account_disabled":
+        raise HTTPException(status_code=403, detail="User is disabled")
+    if failure_reason:
+        raise HTTPException(status_code=401, detail="Sign-in failed")
+
     response = JSONResponse({"mustChangePassword": bool(credential["must_change_password"])})
     _set_session_cookie(response, request, user["id"], "local")
     return response
@@ -140,9 +158,10 @@ def auth_callback(provider_slug: str, request: Request, code: str, state: str, r
     if not state_payload or state_payload.get("state") != state or state_payload.get("provider") != provider_slug:
         raise HTTPException(status_code=400, detail="Invalid login state")
     provider = _provider_or_404(provider_slug)
-    secret = provider["client_secret"] or ""
-    if not provider["client_id"] or not secret:
+    raw_secret = provider["client_secret"] or ""
+    if not provider["client_id"] or not raw_secret:
         raise HTTPException(status_code=400, detail="Auth provider is missing client ID or client secret")
+    secret = decrypt_secret(raw_secret)
 
     callback_url = _callback_url(provider_slug)
     token_payload = _exchange_code(provider, code, callback_url, secret)
@@ -151,6 +170,7 @@ def auth_callback(provider_slug: str, request: Request, code: str, state: str, r
         enforce(provider, profile, profile["groups"])
         actor = upsert_user(conn, provider_slug, profile["subject"], profile["email"], profile["name"])
         sync_header_groups(conn, actor, provider_slug, profile["groups"])
+        record_audit(conn, actor, "auth.login.success", "user", profile["email"], {"provider": provider_slug})
 
     redirect = RedirectResponse(state_payload.get("return_to") or "/manage", status_code=302)
     _set_session_cookie(redirect, request, actor.user_id, provider_slug)
